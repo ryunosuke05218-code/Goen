@@ -1,0 +1,24 @@
+# --- .NET (backend/) ---
+backend/**/bin/
+backend/**/obj/
+
+# --- Flutter (mobile/goen_app/) ---
+mobile/goen_app/.dart_tool/
+mobile/goen_app/.flutter-plugins
+mobile/goen_app/.flutter-plugins-dependencies
+mobile/goen_app/.pub-cache/
+mobile/goen_app/.pub/
+mobile/goen_app/build/
+mobile/goen_app/android/.gradle/
+mobile/goen_app/android/local.properties
+mobile/goen_app/ios/Flutter/ephemeral/
+mobile/goen_app/ios/Pods/
+
+# --- IDE ---
+.vs/
+.idea/
+*.user
+
+# --- OS ---
+.DS_Store
+Thumbs.db

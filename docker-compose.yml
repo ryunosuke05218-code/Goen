@@ -1,0 +1,24 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: GOEN
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: GOEN
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      LANG: C.UTF-8
+    ports:
+      - "5432:5432"
+    volumes:
+      - goen_db_data:/var/lib/postgresql/data
+      - ./db/ddl_goen_v1.0.sql:/docker-entrypoint-initdb.d/01_ddl_goen_v1.0.sql:ro
+      - ./db/seed_dev.sql:/docker-entrypoint-initdb.d/02_seed_dev.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goen_app -d goen"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  goen_db_data:
