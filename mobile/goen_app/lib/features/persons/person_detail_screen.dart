@@ -1,6 +1,10 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models/person_models.dart';
 import 'person_network_screen.dart';
@@ -27,6 +31,7 @@ class PersonDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final detailAsync = ref.watch(personDetailProvider(personId));
     final contactsAsync = ref.watch(personContactsProvider(personId));
+    final networkAsync = ref.watch(personNetworkGraphProvider(personId));
 
     return Scaffold(
       appBar: AppBar(
@@ -68,6 +73,8 @@ class PersonDetailScreen extends ConsumerWidget {
                   .whereType<String>()
                   .where((e) => e.isNotEmpty)
                   .join(' / ')),
+              if (person.occupationName != null)
+                Text('職種: ${person.occupationName}', style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -92,18 +99,35 @@ class PersonDetailScreen extends ConsumerWidget {
                   ),
                 ),
               ],
+              if (person.metPlace != null) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(Icons.place_outlined, size: 16, color: Theme.of(context).colorScheme.outline),
+                    const SizedBox(width: 4),
+                    Text('どこで会ったか: ${person.metPlace}'),
+                  ],
+                ),
+              ],
               const SizedBox(height: 16),
               _SectionCard(
                 title: 'AI要約',
                 trailing: person.aiSummary == null
                     ? null
-                    : const Chip(label: Text('AI生成'), visualDensity: VisualDensity.compact),
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Chip(label: Text('AI生成'), visualDensity: VisualDensity.compact),
+                          IconButton(
+                            icon: const Icon(Icons.refresh, size: 20),
+                            tooltip: 'AI要約を更新する',
+                            onPressed: () => _showGenerateCardSheet(context, ref, personId),
+                          ),
+                        ],
+                      ),
                 child: person.aiSummary == null
                     ? FilledButton.tonal(
-                        onPressed: () async {
-                          await ref.read(personRepositoryProvider).generateCard(personId);
-                          ref.invalidate(personDetailProvider(personId));
-                        },
+                        onPressed: () => _showGenerateCardSheet(context, ref, personId),
                         child: const Text('AIカルテを生成する（F-010）'),
                       )
                     : Text(person.aiSummary!),
@@ -123,6 +147,22 @@ class PersonDetailScreen extends ConsumerWidget {
                   ],
                 ),
               ),
+              if (person.snsLinks.isNotEmpty)
+                _SectionCard(
+                  title: 'SNSリンク',
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final link in person.snsLinks)
+                        ActionChip(
+                          avatar: const Icon(Icons.link, size: 16),
+                          label: Text(link.label ?? link.url),
+                          onPressed: () => _openLink(context, link.url),
+                        ),
+                    ],
+                  ),
+                ),
               _SectionCard(
                 title: 'メモ',
                 trailing: person.note == null
@@ -165,6 +205,40 @@ class PersonDetailScreen extends ConsumerWidget {
                           onPressed: () => _showRelationSuggestions(context, ref, personId),
                         ),
                       ],
+                    ),
+                    const Divider(height: 24),
+                    Text('登録済みの関係', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 4),
+                    networkAsync.when(
+                      loading: () => const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: LinearProgressIndicator(),
+                      ),
+                      error: (err, st) => Text('取得に失敗しました: $err', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      data: (graph) {
+                        final nodeById = {for (final n in graph.nodes) n.personId: n};
+                        final related = graph.edges
+                            .where((e) =>
+                                e.relationType != 'self' && (e.fromPersonId == personId || e.toPersonId == personId))
+                            .toList();
+                        if (related.isEmpty) {
+                          return const Text('まだ関係が登録されていません。', style: TextStyle(fontSize: 12, color: Colors.grey));
+                        }
+                        return Column(
+                          children: [
+                            for (final e in related)
+                              if (nodeById[e.fromPersonId == personId ? e.toPersonId : e.fromPersonId] case final other?)
+                                ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  leading: CircleAvatar(radius: 6, backgroundColor: RelationTypeStyle.color(e.relationType)),
+                                  title: Text(other.fullName),
+                                  subtitle: Text(RelationTypeStyle.label(e.relationType)),
+                                  onTap: () => context.push('/persons/${other.personId}'),
+                                ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -217,6 +291,15 @@ class PersonDetailScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+}
+
+// SNSリンクをタップしたときに既定のブラウザ・アプリで開く
+Future<void> _openLink(BuildContext context, String url) async {
+  final uri = Uri.tryParse(url);
+  final launched = uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!launched && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('リンクを開けませんでした: $url')));
   }
 }
 
@@ -402,6 +485,134 @@ class _SectionCard extends StatelessWidget {
             child,
           ],
         ),
+      ),
+    );
+  }
+}
+
+// F-010: AIカルテ生成／更新。任意でHPリンク・資料ファイルを指定し、根拠に含めることができる
+Future<void> _showGenerateCardSheet(BuildContext context, WidgetRef ref, String personId) async {
+  final generated = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _GenerateCardSheet(personId: personId),
+  );
+  if (generated == true) {
+    ref.invalidate(personDetailProvider(personId));
+  }
+}
+
+class _GenerateCardSheet extends ConsumerStatefulWidget {
+  const _GenerateCardSheet({required this.personId});
+
+  final String personId;
+
+  @override
+  ConsumerState<_GenerateCardSheet> createState() => _GenerateCardSheetState();
+}
+
+class _GenerateCardSheetState extends ConsumerState<_GenerateCardSheet> {
+  final _hpUrl = TextEditingController();
+  File? _file;
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _hpUrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'txt', 'md'],
+    );
+    final path = result?.files.single.path;
+    if (path != null) setState(() => _file = File(path));
+  }
+
+  Future<void> _submit() async {
+    setState(() => _isSubmitting = true);
+    try {
+      await ref.read(personRepositoryProvider).generateCard(
+            widget.personId,
+            hpUrl: _hpUrl.text.trim().isEmpty ? null : _hpUrl.text.trim(),
+            file: _file,
+          );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AIカルテの生成に失敗しました: $e')));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16, right: 16, top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('AIカルテを生成', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          const Text(
+            '名刺・音声メモ・接点履歴のメモに加え、任意でHPリンクや資料ファイルを渡すと、それらも要約の根拠に含めます。'
+            '既にAI要約がある場合は、前回の内容を踏まえて更新します。',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _hpUrl,
+            decoration: const InputDecoration(
+              labelText: 'HPリンク（任意）',
+              border: OutlineInputBorder(),
+              hintText: 'https://example.com',
+            ),
+            keyboardType: TextInputType.url,
+          ),
+          const SizedBox(height: 12),
+          if (_file != null)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.attach_file),
+                title: Text(_file!.uri.pathSegments.last, overflow: TextOverflow.ellipsis),
+                trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => _file = null)),
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              icon: const Icon(Icons.attach_file),
+              label: const Text('資料ファイルを添付（任意）'),
+              onPressed: _pickFile,
+            ),
+          const Text(
+            '対応形式: 画像・PDF・テキスト（Word/Excel等は非対応。PDFに変換してから添付してください）',
+            style: TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: _isSubmitting ? null : _submit,
+            child: _isSubmitting
+                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('AIで生成する'),
+          ),
+          if (_isSubmitting)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'AIが考えています…（ローカルAIのため1分ほどかかる場合があります）',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ),
+        ],
       ),
     );
   }

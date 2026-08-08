@@ -18,6 +18,7 @@ public class AiPersonCard
     public string LlmModel { get; set; } = null!;
     public DateTimeOffset GeneratedAt { get; set; }
     public Guid[] InputContactIds { get; set; } = Array.Empty<Guid>();
+    public string InputSourcesJson { get; set; } = "[]"; // HPリンク・資料ファイル等、接点以外の追加ソースの参照情報
 
     public DateTimeOffset CreatedAt { get; set; }
     public Guid? CreatedBy { get; set; }

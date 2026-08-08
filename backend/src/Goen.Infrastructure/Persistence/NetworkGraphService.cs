@@ -3,7 +3,9 @@ using Npgsql;
 
 namespace Goen.Infrastructure.Persistence;
 
-public record NetworkNode(Guid PersonId, string FullName, string? CompanyName, int Importance, int Depth, bool IsSelf = false);
+public record NetworkNode(
+    Guid PersonId, string FullName, string? CompanyName, string? IndustryName, string? OccupationName,
+    int Importance, int Depth, bool IsSelf = false);
 public record NetworkEdge(Guid RelationId, Guid FromPersonId, Guid ToPersonId, string RelationType, int Strength);
 public record NetworkGraph(IReadOnlyList<NetworkNode> Nodes, IReadOnlyList<NetworkEdge> Edges);
 
@@ -31,10 +33,10 @@ public class NetworkGraphService
             .OrderByDescending(r => r.Importance)
             .ThenByDescending(r => r.LastContactAt)
             .Take(depth1Limit)
-            .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.Importance })
+            .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance })
             .ToListAsync(ct);
 
-        var selfNode = new NetworkNode(SelfPersonId, ownerDisplayName, null, 0, 0, true);
+        var selfNode = new NetworkNode(SelfPersonId, ownerDisplayName, null, null, null, 0, 0, true);
 
         if (depth1.Count == 0)
         {
@@ -66,14 +68,14 @@ public class NetworkGraphService
                 ? []
                 : await _db.PersonsRead
                     .Where(r => depth2Ids.Contains(r.PersonId) && r.OrgId == orgId)
-                    .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.Importance })
+                    .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance })
                     .ToListAsync(ct);
 
             var allIds = depth1Ids.Concat(depth2Rows.Select(r => r.PersonId)).ToHashSet();
 
             var nodes = new List<NetworkNode> { selfNode };
-            nodes.AddRange(depth1.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.Importance, 1)));
-            nodes.AddRange(depth2Rows.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.Importance, 2)));
+            nodes.AddRange(depth1.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.IndustryName, p.OccupationName, p.Importance, 1)));
+            nodes.AddRange(depth2Rows.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.IndustryName, p.OccupationName, p.Importance, 2)));
 
             var edges = new List<NetworkEdge>();
             // 「自分」→直接の人脈 は実データではなく、中心ノードを表現するための合成エッジ
@@ -116,11 +118,11 @@ public class NetworkGraphService
             var ids = depthByPersonId.Keys.ToList();
             var rows = await _db.PersonsRead
                 .Where(r => ids.Contains(r.PersonId) && r.OrgId == orgId)
-                .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.Importance })
+                .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance })
                 .ToListAsync(ct);
 
             var nodes = rows
-                .Select(r => new NetworkNode(r.PersonId, r.FullName, r.CompanyName, r.Importance, depthByPersonId[r.PersonId]))
+                .Select(r => new NetworkNode(r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance, depthByPersonId[r.PersonId]))
                 .ToList();
 
             var nodeIdSet = nodes.Select(n => n.PersonId).ToHashSet();
@@ -135,6 +137,23 @@ public class NetworkGraphService
                 await conn.CloseAsync();
             }
         }
+    }
+
+    // F-027: 他ユーザーの人脈図を業種階層までに限定して閲覧する。個々の人物・職種・会社名は一切取得しない
+    // （SELECT自体に含めないことで、フロント実装ミスによる情報漏えいを構造的に防ぐ。基本設計書7.6節参照）。
+    public async Task<IReadOnlyList<(string IndustryName, int Count)>> GetIndustryBreakdownAsync(
+        Guid targetUserId, Guid orgId, CancellationToken ct = default)
+    {
+        var rows = await _db.PersonsRead
+            .Where(r => r.OwnerUserId == targetUserId && r.OrgId == orgId)
+            .GroupBy(r => r.IndustryName)
+            .Select(g => new { IndustryName = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        return rows
+            .Select(r => (r.IndustryName ?? "業種未設定", r.Count))
+            .OrderByDescending(r => r.Count)
+            .ToList();
     }
 
     private static async Task<Dictionary<Guid, int>> CollectReachablePersonIdsAsync(

@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Goen.Api.Dtos;
 using Goen.Domain.Entities;
 using Goen.Infrastructure.ExternalAi;
 using Goen.Infrastructure.Persistence;
+using Goen.Infrastructure.QrCode;
 using Goen.Infrastructure.Rag;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,9 +23,11 @@ public class PersonsController : ControllerBase
     private readonly NetworkGraphService _network;
     private readonly RagIndexQueueService _ragQueue;
     private readonly IOcrService _ocr;
+    private readonly IQrCodeReader _qrReader;
     private readonly ISpeechToTextService _asr;
     private readonly ILlmService _llm;
     private readonly AiChatOptions _aiOptions;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public PersonsController(
         GoenDbContext db,
@@ -31,23 +35,28 @@ public class PersonsController : ControllerBase
         NetworkGraphService network,
         RagIndexQueueService ragQueue,
         IOcrService ocr,
+        IQrCodeReader qrReader,
         ISpeechToTextService asr,
         ILlmService llm,
-        IOptions<AiChatOptions> aiOptions)
+        IOptions<AiChatOptions> aiOptions,
+        IHttpClientFactory httpClientFactory)
     {
         _db = db;
         _readSync = readSync;
         _network = network;
         _ragQueue = ragQueue;
         _ocr = ocr;
+        _qrReader = qrReader;
         _asr = asr;
         _llm = llm;
         _aiOptions = aiOptions.Value;
+        _httpClientFactory = httpClientFactory;
     }
 
     // F-004（簡易版）: persons_read への氏名・要約の部分一致検索。曖昧検索（RAG）は将来のフェーズで拡張する。
+    // F-003: sortで並び順を切り替え、総登録人数（totalCount、絞り込み後の件数）を併せて返す。
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<PersonListItem>>> List([FromQuery] string? q, CancellationToken ct)
+    public async Task<ActionResult<PersonListResponse>> List([FromQuery] string? q, [FromQuery] string? sort, CancellationToken ct)
     {
         var orgId = User.GetOrgId();
         var query = _db.PersonsRead.Where(r => r.OrgId == orgId);
@@ -57,15 +66,23 @@ public class PersonsController : ControllerBase
             query = query.Where(r => EF.Functions.ILike(r.SearchText, $"%{q}%"));
         }
 
+        var totalCount = await query.CountAsync(ct);
+
+        query = sort switch
+        {
+            "name_asc" => query.OrderBy(r => r.FullNameKana ?? r.FullName),
+            "registered_desc" => query.OrderByDescending(r => r.CreatedAt),
+            "registered_asc" => query.OrderBy(r => r.CreatedAt),
+            _ => query.OrderByDescending(r => r.Importance).ThenByDescending(r => r.LastContactAt),
+        };
+
         var items = await query
-            .OrderByDescending(r => r.Importance)
-            .ThenByDescending(r => r.LastContactAt)
             .Select(r => new PersonListItem(
                 r.PersonId, r.FullName, r.FullNameKana, r.CompanyName, r.JobTitle,
                 r.Importance, r.Summary, r.LastContactAt, r.ContactCount))
             .ToListAsync(ct);
 
-        return Ok(items);
+        return Ok(new PersonListResponse(items, totalCount));
     }
 
     [HttpGet("{personId:guid}")]
@@ -73,6 +90,7 @@ public class PersonsController : ControllerBase
     {
         var person = await _db.Persons
             .Include(p => p.Company)
+            .Include(p => p.Occupation)
             .Include(p => p.Profile)
             .Include(p => p.IntroducerPerson)
             .FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
@@ -116,9 +134,11 @@ public class PersonsController : ControllerBase
             FullNameKana = request.FullNameKana,
             Department = request.Department,
             JobTitle = request.JobTitle,
+            OccupationCode = string.IsNullOrWhiteSpace(request.OccupationCode) ? null : request.OccupationCode,
             SourceType = request.SourceType,
             IntroducerPersonId = introducerPersonId,
             FirstMetAt = DateOnly.FromDateTime(DateTime.UtcNow),
+            MetPlace = request.MetPlace,
             CreatedAt = DateTimeOffset.UtcNow,
             CreatedBy = userId,
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -134,6 +154,7 @@ public class PersonsController : ControllerBase
             Email = request.Email,
             Address = request.Address,
             Note = request.Note,
+            SnsAccountsJson = JsonSerializer.Serialize(request.SnsLinks ?? Array.Empty<SnsLink>()),
             CreatedAt = DateTimeOffset.UtcNow,
             CreatedBy = userId,
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -150,6 +171,13 @@ public class PersonsController : ControllerBase
             await AppendColleagueNoteAsync(orgId, person, newCompanyId, ct);
         }
 
+        // F-028: 登録した人物がGOENの既存ユーザーだと本人確認できる場合、相手側にも自分を自動登録する
+        Guid? mutuallyRegisteredPersonId = null;
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            mutuallyRegisteredPersonId = await TryCreateMutualRegistrationAsync(request.Email, userId, ct);
+        }
+
         await _db.SaveChangesAsync(ct);
         await _readSync.RefreshAsync(person.PersonId, ct);
         await _ragQueue.EnqueueAsync("profile", person.PersonId, person.PersonId, 'U', ct);
@@ -157,9 +185,15 @@ public class PersonsController : ControllerBase
         {
             await _readSync.RefreshAsync(introducerPersonId.Value, ct);
         }
+        if (mutuallyRegisteredPersonId is { } reciprocalId)
+        {
+            await _readSync.RefreshAsync(reciprocalId, ct);
+            await _ragQueue.EnqueueAsync("profile", reciprocalId, reciprocalId, 'U', ct);
+        }
 
         var created = await _db.Persons
             .Include(p => p.Company)
+            .Include(p => p.Occupation)
             .Include(p => p.Profile)
             .Include(p => p.IntroducerPerson)
             .FirstAsync(p => p.PersonId == person.PersonId, ct);
@@ -173,6 +207,7 @@ public class PersonsController : ControllerBase
         var person = await _db.Persons
             .Include(p => p.Profile)
             .Include(p => p.Company)
+            .Include(p => p.Occupation)
             .Include(p => p.IntroducerPerson)
             .FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
         if (person is null) return NotFound();
@@ -181,9 +216,14 @@ public class PersonsController : ControllerBase
         person.FullNameKana = request.FullNameKana;
         person.Department = request.Department;
         person.JobTitle = request.JobTitle;
+        person.OccupationCode = string.IsNullOrWhiteSpace(request.OccupationCode) ? null : request.OccupationCode;
+        person.Occupation = string.IsNullOrWhiteSpace(request.OccupationCode)
+            ? null
+            : await _db.OccupationTypes.FindAsync(new object[] { request.OccupationCode }, ct);
         person.Importance = request.Importance;
         person.ImportanceIsManual = request.ImportanceIsManual; // F-022: 手動上書き時はAI自動算出で以後上書きしない
         person.Visibility = request.Visibility;
+        person.MetPlace = request.MetPlace;
         person.UpdatedBy = User.GetUserId();
 
         if (!string.IsNullOrWhiteSpace(request.CompanyName))
@@ -202,6 +242,7 @@ public class PersonsController : ControllerBase
         person.Profile.Email = request.Email;
         person.Profile.Address = request.Address;
         person.Profile.Note = request.Note;
+        person.Profile.SnsAccountsJson = JsonSerializer.Serialize(request.SnsLinks ?? Array.Empty<SnsLink>());
         person.Profile.UpdatedBy = User.GetUserId();
 
         await _db.SaveChangesAsync(ct);
@@ -227,16 +268,131 @@ public class PersonsController : ControllerBase
     }
 
     // F-007: 名刺画像→OCR抽出のドラフトを返す（この時点ではDB未登録。確認後にPOST /api/persons で確定登録する）
+    // QRコード（SNSリンク等）はLLMではなく専用デコーダで読み取り、ドラフトのSNSリンク欄に変換して返す。
     [HttpPost("ocr-draft")]
     [RequestSizeLimit(10_000_000)]
     public async Task<ActionResult<OcrDraftResponse>> OcrDraft(IFormFile image, CancellationToken ct)
     {
-        await using var stream = image.OpenReadStream();
-        var result = await _ocr.ExtractAsync(stream, ct);
+        byte[] bytes;
+        await using (var stream = image.OpenReadStream())
+        {
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, ct);
+            bytes = buffer.ToArray();
+        }
+
+        using var ocrStream = new MemoryStream(bytes);
+        var result = await _ocr.ExtractAsync(ocrStream, ct);
+
+        var snsLinks = _qrReader.ReadUrls(bytes)
+            .Select(url => new SnsLink(SnsLinkClassifier.GuessLabel(url), url))
+            .ToList();
 
         return Ok(new OcrDraftResponse(
             result.FullName, result.FullNameKana, result.CompanyName, result.Department, result.JobTitle,
-            result.Tel, result.Mobile, result.Email, result.Address, result.Url, result.Confidence));
+            result.Tel, result.Mobile, result.Email, result.Address, result.Url, result.Confidence, snsLinks));
+    }
+
+    // F-007: 登録内容確認画面で入力された音声文字起こしを、OCR結果（フォームの現在値）と統合する。
+    // 画像は再送しない（ocr-draftとは独立したテキストのみのやり取り）。
+    [HttpPost("ocr-draft/refine")]
+    public async Task<ActionResult<OcrDraftResponse>> RefineOcrDraft(RefineOcrDraftRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.VoiceText))
+        {
+            return Ok(ToUnchangedOcrDraft(request));
+        }
+
+        const string systemPrompt = """
+            あなたは名刺管理アプリのAIアシスタントです。
+            名刺OCRで抽出済みの項目（不正確・欠落がある場合がある）と、利用者が口頭で補足した音声の文字起こしを
+            統合し、より正確な人物の登録項目を求めてください。
+
+            必ず次のJSON形式のみで出力してください（説明文や前置きは不要）:
+            {"fullName": "氏名またはnull", "fullNameKana": "氏名のふりがな（カタカナ）またはnull", "companyName": "会社名またはnull", "department": "部署またはnull", "jobTitle": "役職またはnull", "tel": "電話番号またはnull", "mobile": "携帯番号またはnull", "email": "メールアドレスまたはnull", "address": "住所またはnull"}
+
+            重要なルール:
+            - 既存のOCR抽出結果と音声内容が矛盾する場合は、より具体的・確実な情報を優先すること。
+            - どちらの情報源にも記載がない項目は必ずnullにすること。推測や創作で埋めてはいけない。
+            """;
+
+        var userPrompt = $$"""
+            OCR抽出結果（既存の値。登録フォームに既に入っている内容）:
+            {"fullName": {{JsonSerializer.Serialize(request.FullName)}}, "fullNameKana": {{JsonSerializer.Serialize(request.FullNameKana)}}, "companyName": {{JsonSerializer.Serialize(request.CompanyName)}}, "department": {{JsonSerializer.Serialize(request.Department)}}, "jobTitle": {{JsonSerializer.Serialize(request.JobTitle)}}, "tel": {{JsonSerializer.Serialize(request.Tel)}}, "mobile": {{JsonSerializer.Serialize(request.Mobile)}}, "email": {{JsonSerializer.Serialize(request.Email)}}, "address": {{JsonSerializer.Serialize(request.Address)}}}
+
+            音声の文字起こし（利用者の口頭補足）:
+            {{request.VoiceText}}
+            """;
+
+        try
+        {
+            var content = await _llm.ComposeTextAsync(systemPrompt, userPrompt, ct);
+            var json = LenientJson.Parse(content);
+
+            return Ok(new OcrDraftResponse(
+                GetString(json, "fullName") ?? request.FullName,
+                GetString(json, "fullNameKana") ?? request.FullNameKana,
+                GetString(json, "companyName") ?? request.CompanyName,
+                GetString(json, "department") ?? request.Department,
+                GetString(json, "jobTitle") ?? request.JobTitle,
+                GetString(json, "tel") ?? request.Tel,
+                GetString(json, "mobile") ?? request.Mobile,
+                GetString(json, "email") ?? request.Email,
+                GetString(json, "address") ?? request.Address,
+                Url: null, Confidence: 1.0m, SnsLinks: Array.Empty<SnsLink>()));
+        }
+        catch
+        {
+            // AIでの統合に失敗した場合は元の値をそのまま返す（利用者が手動で編集を継続できる）
+            return Ok(ToUnchangedOcrDraft(request));
+        }
+    }
+
+    // F-002: 手入力登録画面向け。名刺OCR結果を前提としない、音声（文字起こし）だけからの項目抽出。
+    // 話した内容をそのまま各登録項目・メモに振り分けることで、入力の手間を減らす。
+    [HttpPost("voice-draft")]
+    public async Task<ActionResult<VoiceDraftResponse>> CreateVoiceDraft(VoiceDraftRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.VoiceText))
+        {
+            return Ok(new VoiceDraftResponse(null, null, null, null, null, null, null, null));
+        }
+
+        const string systemPrompt = """
+            あなたは人脈管理アプリのAIアシスタントです。
+            利用者が名刺を使わず、出会った人物について口頭で話した内容の文字起こしから、
+            人物登録フォームの各項目を抽出してください。
+
+            必ず次のJSON形式のみで出力してください（説明文や前置きは不要）:
+            {"fullName": "氏名またはnull", "fullNameKana": "氏名のふりがな（カタカナ）またはnull", "companyName": "会社名またはnull", "jobTitle": "役職またはnull", "email": "メールアドレスまたはnull", "mobile": "携帯番号またはnull", "metPlace": "出会った場所・機会（例：〇〇異業種交流会）またはnull", "note": "登録項目のどれにも当てはまらない残りの発言内容をまとめたメモ"}
+
+            必ず次の順序で処理すること:
+            1. まず氏名・ふりがな・会社名・役職・メールアドレス・携帯番号・出会った場所を、発言の中に明確な記載がある場合だけ、それぞれの項目にそのまま入れる（推測や創作で埋めない。記載がなければnull）。
+            2. 次に、手順1でどの項目にも入れなかった残りの発言内容（年齢・趣味・家族構成・事業内容・課題・紹介者・次回アクションなど）だけをnoteにまとめる。手順1で各項目に入れた内容をnoteに重複して書かないこと。該当する残りの発言が本当に何もない場合のみnoteをnullにする。
+            """;
+
+        var userPrompt = $"音声の文字起こし:\n{request.VoiceText}";
+
+        try
+        {
+            var content = await _llm.ComposeTextAsync(systemPrompt, userPrompt, ct);
+            var json = LenientJson.Parse(content);
+
+            return Ok(new VoiceDraftResponse(
+                GetString(json, "fullName"),
+                GetString(json, "fullNameKana"),
+                GetString(json, "companyName"),
+                GetString(json, "jobTitle"),
+                GetString(json, "email"),
+                GetString(json, "mobile"),
+                GetString(json, "note"),
+                GetString(json, "metPlace")));
+        }
+        catch
+        {
+            // AIでの抽出に失敗した場合は、利用者が話した内容をそのままメモに残す（情報を失わないため）
+            return Ok(new VoiceDraftResponse(null, null, null, null, null, null, request.VoiceText, null));
+        }
     }
 
     // F-011: 接点履歴の登録
@@ -371,32 +527,87 @@ public class PersonsController : ControllerBase
         return Ok(new VoiceMemoResponse(transcript.Content, asrResult.Confidence));
     }
 
-    // F-010: 蓄積された接点・文字起こしからAI人物カルテを生成する
+    // F-010: 蓄積された接点・文字起こし・前回世代の要約に加え、任意のHPリンク・資料ファイルからAI人物カルテを生成する。
+    // 資料ファイルは独自のテキスト抽出を行わず、名刺OCRと同様にマルチモーダルLLMへそのまま渡す（画像・PDFの場合）。
+    // プレーンテキストファイルはそのままテキストとして入力に含める。
     [HttpPost("{personId:guid}/cards/generate")]
-    public async Task<ActionResult<GenerateCardResponse>> GenerateCard(Guid personId, CancellationToken ct)
+    [RequestSizeLimit(10_000_000)]
+    public async Task<ActionResult<GenerateCardResponse>> GenerateCard(
+        Guid personId, [FromForm] string? hpUrl, IFormFile? file, CancellationToken ct)
     {
         var person = await _db.Persons.FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
         if (person is null) return NotFound();
 
-        var sourceTexts = await _db.Transcripts
+        var sourceTexts = new List<string>();
+        var inputSources = new List<object>();
+
+        // 前回世代の要約（存在する場合）: これを踏まえて差分更新する
+        var previousCard = await _db.AiPersonCards
+            .Where(c => c.PersonId == personId && c.IsLatest)
+            .FirstOrDefaultAsync(ct);
+        if (!string.IsNullOrWhiteSpace(previousCard?.Summary))
+        {
+            sourceTexts.Add($"[前回のAI要約]\n{previousCard.Summary}");
+        }
+
+        // 音声メモ等の文字起こし
+        var transcripts = await _db.Transcripts
             .Where(t => t.Contact.PersonId == personId)
             .OrderByDescending(t => t.CreatedAt)
             .Select(t => t.Content)
             .Take(20)
             .ToListAsync(ct);
+        sourceTexts.AddRange(transcripts.Select(t => $"[音声文字起こし]\n{t}"));
+
+        // 接点履歴の全メモ（商談・1to1・名刺交換時のメモ等）
+        var contactNotes = await _db.Contacts
+            .Where(c => c.PersonId == personId && c.Note != null && c.Note != "")
+            .OrderByDescending(c => c.OccurredAt)
+            .Select(c => c.Note!)
+            .Take(30)
+            .ToListAsync(ct);
+        sourceTexts.AddRange(contactNotes.Select(n => $"[接点メモ]\n{n}"));
+
+        // 任意: HPリンクの本文取得（失敗しても他の情報のみで続行する）
+        if (!string.IsNullOrWhiteSpace(hpUrl))
+        {
+            var pageText = await TryFetchUrlTextAsync(hpUrl, ct);
+            if (pageText is not null)
+            {
+                sourceTexts.Add($"[HPリンクの内容: {hpUrl}]\n{pageText}");
+                inputSources.Add(new { type = "url", value = hpUrl });
+            }
+        }
+
+        // 任意: 資料ファイル。プレーンテキストはテキストとして入力に含め、画像・PDFはLLMへそのまま渡す
+        var attachments = new List<AttachmentInput>();
+        if (file is { Length: > 0 })
+        {
+            var contentType = file.ContentType.ToLowerInvariant();
+            await using var fileStream = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await fileStream.CopyToAsync(buffer, ct);
+            var bytes = buffer.ToArray();
+
+            if (contentType.StartsWith("text/"))
+            {
+                sourceTexts.Add($"[資料ファイル: {file.FileName}]\n{System.Text.Encoding.UTF8.GetString(bytes)}");
+            }
+            else if (contentType.StartsWith("image/") || contentType == "application/pdf")
+            {
+                attachments.Add(new AttachmentInput(bytes, contentType));
+            }
+            inputSources.Add(new { type = "file", value = file.FileName });
+        }
 
         var contactIds = await _db.Contacts
             .Where(c => c.PersonId == personId)
             .Select(c => c.ContactId)
             .ToArrayAsync(ct);
 
-        var draft = await _llm.GeneratePersonCardAsync(person.FullName, sourceTexts, ct);
+        var draft = await _llm.GeneratePersonCardAsync(person.FullName, sourceTexts, attachments, ct);
 
-        var previousGeneration = await _db.AiPersonCards
-            .Where(c => c.PersonId == personId)
-            .OrderByDescending(c => c.Generation)
-            .Select(c => (int?)c.Generation)
-            .FirstOrDefaultAsync(ct) ?? 0;
+        var previousGeneration = previousCard?.Generation ?? 0;
 
         await _db.AiPersonCards
             .Where(c => c.PersonId == personId && c.IsLatest)
@@ -416,6 +627,7 @@ public class PersonsController : ControllerBase
             LlmModel = $"{_aiOptions.Provider}:{_aiOptions.Model}",
             GeneratedAt = DateTimeOffset.UtcNow,
             InputContactIds = contactIds,
+            InputSourcesJson = JsonSerializer.Serialize(inputSources),
             CreatedAt = DateTimeOffset.UtcNow,
             CreatedBy = User.GetUserId(),
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -513,7 +725,7 @@ public class PersonsController : ControllerBase
         var graph = await _network.GetNetworkAsync(personId, orgId, depth, ct);
 
         return Ok(new NetworkGraphResponse(
-            graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.Importance, n.Depth, n.IsSelf)).ToList(),
+            graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.IndustryName, n.OccupationName, n.Importance, n.Depth, n.IsSelf)).ToList(),
             graph.Edges.Select(e => new NetworkEdgeResponse(e.RelationId, e.FromPersonId, e.ToPersonId, e.RelationType, e.Strength)).ToList()));
     }
 
@@ -595,6 +807,54 @@ public class PersonsController : ControllerBase
         });
     }
 
+    // F-028: 相互人脈登録。メールアドレスが既存GOENユーザーと完全一致する場合のみ実行し、あいまい一致は行わない。
+    // 対象ユーザーがallow_mutual_registrationをOFFにしている場合は何もしない（設定画面でのON/OFF切替、既定はON）。
+    private async Task<Guid?> TryCreateMutualRegistrationAsync(string counterpartEmail, Guid registeringUserId, CancellationToken ct)
+    {
+        var normalizedEmail = counterpartEmail.Trim().ToLowerInvariant();
+
+        var counterpartUser = await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail, ct);
+        if (counterpartUser is null || !counterpartUser.AllowMutualRegistration) return null;
+        if (counterpartUser.UserId == registeringUserId) return null; // 自分自身のメールアドレスを入力した場合は何もしない
+
+        var registeringUser = await _db.Users.FirstOrDefaultAsync(u => u.UserId == registeringUserId, ct);
+        if (registeringUser is null || string.IsNullOrWhiteSpace(registeringUser.Email)) return null;
+
+        // 既に相手側に自分が登録済みなら重複作成しない
+        var alreadyExists = await _db.Persons.AnyAsync(p =>
+            p.OrgId == counterpartUser.OrgId && p.OwnerUserId == counterpartUser.UserId &&
+            p.Profile != null && p.Profile.Email != null && p.Profile.Email.ToLower() == registeringUser.Email.ToLower(), ct);
+        if (alreadyExists) return null;
+
+        var reciprocalPerson = new Person
+        {
+            PersonId = Guid.NewGuid(),
+            OrgId = counterpartUser.OrgId,
+            OwnerUserId = counterpartUser.UserId,
+            FullName = registeringUser.DisplayName,
+            SourceType = "mutual_registration",
+            FirstMetAt = DateOnly.FromDateTime(DateTime.UtcNow),
+            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedBy = counterpartUser.UserId,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            UpdatedBy = counterpartUser.UserId,
+        };
+        _db.Persons.Add(reciprocalPerson);
+
+        reciprocalPerson.Profile = new PersonProfile
+        {
+            PersonId = reciprocalPerson.PersonId,
+            Email = registeringUser.Email,
+            Note = "相互人脈登録により自動作成されました（相手があなたを名刺登録しました）",
+            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedBy = counterpartUser.UserId,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            UpdatedBy = counterpartUser.UserId,
+        };
+
+        return reciprocalPerson.PersonId;
+    }
+
     private async Task<Guid> ResolveCompanyAsync(string companyName, CancellationToken ct)
     {
         var normalized = NormalizeCompanyName(companyName);
@@ -615,14 +875,76 @@ public class PersonsController : ControllerBase
         return company.CompanyId;
     }
 
+    // F-010: HPリンクの本文を取得しテキスト化する。取得・パース失敗時はnullを返し、呼び出し元は他の情報のみで続行する。
+    private async Task<string?> TryFetchUrlTextAsync(string url, CancellationToken ct)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            return null;
+        }
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; GoenBot/1.0)");
+
+            var html = await client.GetStringAsync(uri, ct);
+            var text = System.Text.RegularExpressions.Regex.Replace(html, "<script[^>]*>.*?</script>", " ",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "<style[^>]*>.*?</style>", " ",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", " ");
+            text = System.Net.WebUtility.HtmlDecode(text);
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+
+            // プロンプトが肥大化しすぎないよう、本文は先頭3000文字程度に丸める
+            return text.Length > 3000 ? text[..3000] : text;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static OcrDraftResponse ToUnchangedOcrDraft(RefineOcrDraftRequest request) => new(
+        request.FullName, request.FullNameKana, request.CompanyName, request.Department, request.JobTitle,
+        request.Tel, request.Mobile, request.Email, request.Address,
+        Url: null, Confidence: 0m, SnsLinks: Array.Empty<SnsLink>());
+
+    private static string? GetString(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+        var s = value.GetString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
     private static string NormalizeCompanyName(string name) =>
         name.Replace("株式会社", "").Replace("有限会社", "").Trim();
 
     private static PersonDetail ToDetail(Person person, AiPersonCard? card) => new(
         person.PersonId, person.FullName, person.FullNameKana, person.Department, person.JobTitle,
+        person.OccupationCode, person.Occupation?.OccupationName,
         person.CompanyId, person.Company?.CompanyName, person.Importance, person.ImportanceIsManual,
-        person.Visibility, person.FirstMetAt, person.LastContactAt, person.SourceType,
+        person.Visibility, person.FirstMetAt, person.MetPlace, person.LastContactAt, person.SourceType,
         person.Profile?.Tel, person.Profile?.Mobile, person.Profile?.Email, person.Profile?.Address, person.Profile?.Note,
+        ParseSnsLinks(person.Profile?.SnsAccountsJson),
         card?.Summary, card?.Business, card?.Issues, card?.Hobby,
         person.IntroducerPersonId, person.IntroducerPerson?.FullName);
+
+    private static IReadOnlyList<SnsLink> ParseSnsLinks(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<SnsLink>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<SnsLink>>(json) ?? new List<SnsLink>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<SnsLink>(); // 旧形式（オブジェクト）等、解析できない値は空扱いにする
+        }
+    }
 }

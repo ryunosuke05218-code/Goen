@@ -8,6 +8,9 @@ public record PersonCardDraft(
     string? IntroducerName,
     string? Hobby);
 
+// F-010: AI人物カルテ生成時に任意で添付される画像・PDF等（テキスト抽出は行わず、LLMへそのまま渡す）
+public record AttachmentInput(byte[] Bytes, string MimeType);
+
 // F-005 人脈グラフ作成（AI推定）: LLMに候補者一覧を渡し、関係性を提案させる
 public record PersonContext(
     Guid PersonId,
@@ -29,6 +32,7 @@ public interface ILlmService
     Task<PersonCardDraft> GeneratePersonCardAsync(
         string fullName,
         IReadOnlyCollection<string> sourceTexts,
+        IReadOnlyCollection<AttachmentInput>? attachments = null,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<RelationSuggestion>> SuggestRelationsAsync(

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../persons/models/person_models.dart';
 import '../persons/person_repository.dart';
 import 'graph_view.dart';
+import 'network_tree_view.dart';
 
 final myNetworkGraphProvider = FutureProvider.autoDispose((ref) async {
   final repo = ref.watch(personRepositoryProvider);
@@ -45,6 +46,11 @@ class _NetworkMapScreenState extends ConsumerState<NetworkMapScreen> {
               onPressed: () => _openFilter(graph),
             ),
           IconButton(
+            icon: const Icon(Icons.groups_outlined),
+            tooltip: '他ユーザーの人脈図を見る',
+            onPressed: () => context.push('/network-map/other-user'),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '再読み込み',
             onPressed: () => ref.invalidate(myNetworkGraphProvider),
@@ -75,15 +81,15 @@ class _NetworkMapScreenState extends ConsumerState<NetworkMapScreen> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Text(
-                  'ピンチで拡大縮小、ノードをタップすると人物カルテを開きます。右上のアイコンで表示するつながりを絞り込めます。',
+                  '業種＞職種＞会社名＞人物の順にグループ化しています。グループをタップすると折りたたみ、人物をタップすると人物カルテを開きます。右上のアイコンで表示するつながりを絞り込めます。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                   textAlign: TextAlign.center,
                 ),
               ),
               Expanded(
-                child: GraphView(
+                child: NetworkTreeView(
                   graph: filteredGraph,
-                  onNodeTap: (personId) => context.push('/persons/$personId'),
+                  onPersonTap: (personId) => context.push('/persons/$personId'),
                 ),
               ),
             ],

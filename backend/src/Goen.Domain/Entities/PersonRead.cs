@@ -11,6 +11,7 @@ public class PersonRead
     public string? FullNameKana { get; set; }
     public string? CompanyName { get; set; }
     public string? IndustryName { get; set; }
+    public string? OccupationName { get; set; }
     public string? PrefName { get; set; }
     public string? JobTitle { get; set; }
     public short Importance { get; set; }
@@ -21,5 +22,6 @@ public class PersonRead
     public int ContactCount { get; set; }
     public string? OpenActionJson { get; set; }
     public string SearchText { get; set; } = string.Empty;
+    public DateTimeOffset? CreatedAt { get; set; }
     public DateTimeOffset RefreshedAt { get; set; }
 }

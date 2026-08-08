@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/auth_session.dart';
+import 'core/display_settings.dart';
 import 'core/providers.dart';
 import 'features/ai_assistant/ai_assistant_screen.dart';
 import 'features/auth/login_screen.dart';
+import 'features/auth/unlock_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/intro_letter/intro_letter_screen.dart';
 import 'features/network_map/network_map_screen.dart';
+import 'features/network_map/other_user_network_screen.dart';
 import 'features/persons/models/person_models.dart';
 import 'features/persons/add_relation_screen.dart';
 import 'features/persons/contact_detail_screen.dart';
@@ -16,10 +19,9 @@ import 'features/persons/person_card_capture_screen.dart';
 import 'features/persons/person_detail_screen.dart';
 import 'features/persons/person_edit_screen.dart';
 import 'features/persons/person_list_screen.dart';
-import 'features/persons/person_manual_create_screen.dart';
 import 'features/persons/person_network_screen.dart';
+import 'features/persons/person_register_screen.dart';
 import 'features/persons/voice_memo_screen.dart';
-import 'features/search/search_screen.dart';
 import 'features/settings/settings_screen.dart';
 
 // authSessionProviderの変化をGoRouterへ伝える橋渡し。
@@ -48,8 +50,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (auth.status == AuthStatus.unauthenticated) {
         return loggingIn ? null : '/login';
       }
+      if (auth.status == AuthStatus.locked) {
+        return state.matchedLocation == '/unlock' ? null : '/unlock';
+      }
       // authenticated
-      if (loggingIn || state.matchedLocation == '/') {
+      if (loggingIn || state.matchedLocation == '/' || state.matchedLocation == '/unlock') {
         return '/home';
       }
       return null;
@@ -57,10 +62,10 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', builder: (context, state) => const _SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(path: '/unlock', builder: (context, state) => const UnlockScreen()),
       GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
       GoRoute(path: '/persons', builder: (context, state) => const PersonListScreen()),
-      GoRoute(path: '/persons/new/manual', builder: (context, state) => const PersonManualCreateScreen()),
-      GoRoute(path: '/persons/new/card', builder: (context, state) => const PersonCardCaptureScreen()),
+      GoRoute(path: '/persons/new', builder: (context, state) => const PersonRegisterScreen()),
       GoRoute(
         path: '/persons/new/confirm',
         builder: (context, state) => PersonRegisterConfirmScreen(draft: state.extra as OcrDraft),
@@ -98,7 +103,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/network-map', builder: (context, state) => const NetworkMapScreen()),
       GoRoute(path: '/network-map/ai-assistant', builder: (context, state) => const AiAssistantScreen()),
-      GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+      GoRoute(path: '/network-map/other-user', builder: (context, state) => const OtherUserNetworkScreen()),
       GoRoute(path: '/intro-letter', builder: (context, state) => const IntroLetterScreen()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
     ],
@@ -111,13 +116,24 @@ class GoenApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final displaySettings = ref.watch(displaySettingsProvider);
 
     return MaterialApp.router(
       title: 'GOEN',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       darkTheme: ThemeData(colorSchemeSeed: Colors.indigo, brightness: Brightness.dark, useMaterial3: true),
+      themeMode: displaySettings.themeMode,
       routerConfig: router,
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: TextScaler.linear(displaySettings.textScale.factor),
+          ),
+          child: child!,
+        );
+      },
     );
   }
 }

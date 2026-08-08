@@ -1,10 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_config.dart';
+import 'biometric_settings.dart';
 import 'token_storage.dart';
 
-enum AuthStatus { unknown, authenticated, unauthenticated }
+// F-001: lockedは「有効なリフレッシュトークンはあるが、生体認証が有効なためロック解除が必要」な状態。
+enum AuthStatus { unknown, authenticated, unauthenticated, locked }
 
 class AuthState {
   const AuthState({required this.status, this.userDisplayName, this.email});
@@ -31,11 +34,29 @@ class AuthSessionNotifier extends Notifier<AuthState> {
   Future<void> _restoreSession() async {
     try {
       final refreshToken = await _storage.readRefreshToken();
-      state = AuthState(status: refreshToken == null ? AuthStatus.unauthenticated : AuthStatus.authenticated);
+      if (refreshToken == null) {
+        state = const AuthState(status: AuthStatus.unauthenticated);
+        return;
+      }
+      // F-001: 生体認証が有効な場合は、ロック解除（unlockWithBiometrics）が成功するまでauthenticatedにしない
+      bool biometricEnabled;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        biometricEnabled = prefs.getBool(biometricEnabledPrefsKey) ?? false;
+      } catch (_) {
+        biometricEnabled = false;
+      }
+      state = AuthState(status: biometricEnabled ? AuthStatus.locked : AuthStatus.authenticated);
     } catch (_) {
       // セキュアストレージが利用できない環境（一部のテスト実行環境等）では未認証として扱う
       state = const AuthState(status: AuthStatus.unauthenticated);
     }
+  }
+
+  /// F-001: 生体認証（またはそのフォールバック）に成功した際にロックを解除する
+  void unlockWithBiometrics() {
+    if (state.status != AuthStatus.locked) return;
+    state = AuthState(status: AuthStatus.authenticated, userDisplayName: state.userDisplayName, email: state.email);
   }
 
   Future<String?> login({required String email, required String password}) async {

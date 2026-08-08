@@ -10,6 +10,7 @@ public class User
     public string Role { get; set; } = "member"; // member / manager / org_admin / sys_admin
     public string Status { get; set; } = "active"; // active / suspended / retired
     public DateTimeOffset? LastLoginAt { get; set; }
+    public bool AllowMutualRegistration { get; set; } = true; // F-028: 相互人脈登録を受け入れるか
 
     public DateTimeOffset CreatedAt { get; set; }
     public Guid? CreatedBy { get; set; }

@@ -38,6 +38,7 @@ public class RagChunkBuilder
                 p.FullNameKana,
                 p.Department,
                 p.JobTitle,
+                p.MetPlace,
                 p.Version,
                 CompanyName = p.Company != null ? p.Company.CompanyName : null,
             })
@@ -63,6 +64,7 @@ public class RagChunkBuilder
         if (!string.IsNullOrWhiteSpace(row.CompanyName)) lines.Add($"会社: {row.CompanyName}");
         if (!string.IsNullOrWhiteSpace(row.Department)) lines.Add($"部署: {row.Department}");
         if (!string.IsNullOrWhiteSpace(row.JobTitle)) lines.Add($"役職: {row.JobTitle}");
+        if (!string.IsNullOrWhiteSpace(row.MetPlace)) lines.Add($"出会った場所: {row.MetPlace}");
         if (!string.IsNullOrWhiteSpace(prefName)) lines.Add($"都道府県: {prefName}");
         if (!string.IsNullOrWhiteSpace(profile?.Note)) lines.Add($"メモ: {profile!.Note}");
 

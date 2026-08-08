@@ -21,6 +21,7 @@ public class PersonReadSyncService
         var person = await _db.Persons
             .Include(p => p.Company)
             .Include(p => p.Profile)
+            .Include(p => p.Occupation)
             .FirstOrDefaultAsync(p => p.PersonId == personId, ct);
 
         if (person is null)
@@ -28,6 +29,14 @@ public class PersonReadSyncService
             await _db.PersonsRead.Where(r => r.PersonId == personId).ExecuteDeleteAsync(ct);
             return;
         }
+
+        var industryName = person.Company?.IndustryCode is null
+            ? null
+            : await _db.Industries.Where(i => i.IndustryCode == person.Company.IndustryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);
+
+        var prefName = person.Profile?.PrefCode is null
+            ? null
+            : await _db.Prefectures.Where(p => p.PrefCode == person.Profile.PrefCode).Select(p => p.PrefName).FirstOrDefaultAsync(ct);
 
         var latestCard = await _db.AiPersonCards
             .Where(c => c.PersonId == personId && c.IsLatest)
@@ -59,6 +68,9 @@ public class PersonReadSyncService
         read.FullName = person.FullName;
         read.FullNameKana = person.FullNameKana;
         read.CompanyName = person.Company?.CompanyName;
+        read.IndustryName = industryName;
+        read.OccupationName = person.Occupation?.OccupationName;
+        read.PrefName = prefName;
         read.JobTitle = person.JobTitle;
         read.Importance = person.Importance;
         read.Summary = latestCard?.Summary;
@@ -69,6 +81,7 @@ public class PersonReadSyncService
             ? null
             : JsonSerializer.Serialize(new { content = openAction.Content, dueDate = openAction.DueDate });
         read.SearchText = searchText;
+        read.CreatedAt = person.CreatedAt;
         read.RefreshedAt = DateTimeOffset.UtcNow;
 
         await _db.SaveChangesAsync(ct);

@@ -2,6 +2,7 @@ using System.Text;
 using Goen.Infrastructure.ExternalAi;
 using Goen.Infrastructure.Messaging;
 using Goen.Infrastructure.Persistence;
+using Goen.Infrastructure.QrCode;
 using Goen.Infrastructure.Rag;
 using Goen.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -61,6 +62,12 @@ builder.Services.AddScoped<NetworkGraphService>();
 
 // 音声認識は外部サービス未選定（要件Q-004）のためダミー実装を登録する。
 builder.Services.AddScoped<ISpeechToTextService, MockSpeechToTextService>();
+
+// F-010: AIカルテ生成時のHPリンク取得用。AIプロバイダがmockでもIHttpClientFactoryを使えるよう常に登録する。
+builder.Services.AddHttpClient();
+
+// F-007 名刺画像のQRコード（SNSリンク等）読み取り。AI不使用の決定的処理のため常に同じ実装を使う。
+builder.Services.AddSingleton<IQrCodeReader, ZXingQrCodeReader>();
 
 // LLM・OCR・埋め込み: mock以外が指定されていればOpenAI互換クライアントを使う（Groq/Ollama/Gemini/OpenAI共通）。
 // プロバイダの切替はappsettings/User Secretsの Ai:Chat:* / Ai:Embedding:* の値を変えるだけでよい。

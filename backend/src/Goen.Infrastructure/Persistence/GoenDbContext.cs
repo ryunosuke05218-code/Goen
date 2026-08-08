@@ -24,6 +24,9 @@ public class GoenDbContext : DbContext
     public DbSet<PersonRead> PersonsRead => Set<PersonRead>();
     public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
     public DbSet<PersonRelation> PersonRelations => Set<PersonRelation>();
+    public DbSet<OccupationType> OccupationTypes => Set<OccupationType>();
+    public DbSet<Industry> Industries => Set<Industry>();
+    public DbSet<Prefecture> Prefectures => Set<Prefecture>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -56,11 +59,30 @@ public class GoenDbContext : DbContext
             e.HasKey(x => x.PersonId);
             e.Property(x => x.Version).HasDefaultValue(1);
             e.HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId);
+            e.HasOne(x => x.Occupation).WithMany().HasForeignKey(x => x.OccupationCode);
             e.HasOne(x => x.IntroducerPerson).WithMany().HasForeignKey(x => x.IntroducerPersonId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Profile).WithOne(x => x.Person).HasForeignKey<PersonProfile>(x => x.PersonId);
             e.HasMany(x => x.Contacts).WithOne(x => x.Person).HasForeignKey(x => x.PersonId);
             e.HasMany(x => x.Cards).WithOne(x => x.Person).HasForeignKey(x => x.PersonId);
             e.HasMany(x => x.NextActions).WithOne(x => x.Person).HasForeignKey(x => x.PersonId);
+        });
+
+        modelBuilder.Entity<OccupationType>(e =>
+        {
+            e.ToTable("m_occupation_type");
+            e.HasKey(x => x.OccupationCode);
+        });
+
+        modelBuilder.Entity<Industry>(e =>
+        {
+            e.ToTable("m_industry");
+            e.HasKey(x => x.IndustryCode);
+        });
+
+        modelBuilder.Entity<Prefecture>(e =>
+        {
+            e.ToTable("m_prefecture");
+            e.HasKey(x => x.PrefCode);
         });
 
         modelBuilder.Entity<PersonProfile>(e =>
@@ -101,6 +123,7 @@ public class GoenDbContext : DbContext
             e.HasKey(x => x.CardId);
             e.Property(x => x.FieldSourcesJson).HasColumnName("field_sources").HasColumnType("jsonb");
             e.Property(x => x.InputContactIds).HasColumnName("input_contact_ids").HasColumnType("uuid[]");
+            e.Property(x => x.InputSourcesJson).HasColumnName("input_sources").HasColumnType("jsonb");
             e.Property(x => x.Version).HasDefaultValue(1);
         });
 

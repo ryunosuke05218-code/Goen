@@ -9,19 +9,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/voice_input_field.dart';
 import 'models/person_models.dart';
+import 'occupation_picker.dart';
 import 'person_picker.dart';
 import 'person_repository.dart';
+import 'sns_links_editor.dart';
 
-/// S-003 名刺撮影画面（F-007）。撮影後、外部OCR APIへ送信し確認画面(S-004)へ遷移する。
+/// S-003 名刺撮影（F-007）。撮影後、外部OCR APIへ送信し確認画面(S-004)へ遷移する。
+/// [PersonRegisterScreen] の「名刺で登録」タブに埋め込まれるため、Scaffold/AppBarは持たない。
 class PersonCardCaptureScreen extends ConsumerStatefulWidget {
   const PersonCardCaptureScreen({super.key});
 
   @override
-  ConsumerState<PersonCardCaptureScreen> createState() => _PersonCardCaptureScreenState();
+  ConsumerState<PersonCardCaptureScreen> createState() =>
+      _PersonCardCaptureScreenState();
 }
 
-class _PersonCardCaptureScreenState extends ConsumerState<PersonCardCaptureScreen> {
+class _PersonCardCaptureScreenState
+    extends ConsumerState<PersonCardCaptureScreen> {
   File? _image;
   bool _isProcessing = false;
   bool _isDragging = false;
@@ -55,7 +61,9 @@ class _PersonCardCaptureScreenState extends ConsumerState<PersonCardCaptureScree
   // 同じ手順で名刺OCRを試せるようにする。デバッグビルドでのみ表示する。
   Future<void> _loadTestAsset() async {
     try {
-      final bytes = await rootBundle.load('assets/test_data/test_nameplete1.png');
+      final bytes = await rootBundle.load(
+        'assets/test_data/test_nameplete1.png',
+      );
       final file = File('${Directory.systemTemp.path}/test_nameplete1.png');
       await file.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
       setState(() {
@@ -102,97 +110,113 @@ class _PersonCardCaptureScreenState extends ConsumerState<PersonCardCaptureScree
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('名刺を撮影')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Expanded(
-              child: DropTarget(
-                onDragDone: _handleDroppedFiles,
-                onDragEntered: (_) => setState(() => _isDragging = true),
-                onDragExited: (_) => setState(() => _isDragging = false),
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: _isDragging ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor,
-                      width: _isDragging ? 2 : 1,
-                    ),
-                    color: _isDragging ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06) : null,
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Expanded(
+            child: DropTarget(
+              onDragDone: _handleDroppedFiles,
+              onDragEntered: (_) => setState(() => _isDragging = true),
+              onDragExited: (_) => setState(() => _isDragging = false),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: _isDragging
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).dividerColor,
+                    width: _isDragging ? 2 : 1,
                   ),
-                  child: _image == null
-                      ? Center(
-                          child: Text(
-                            _isDragging ? 'ここに画像をドロップ' : '名刺を撮影・ギャラリーから選択、\n「ファイルを選択」またはドラッグ＆ドロップで読み込めます',
-                            textAlign: TextAlign.center,
-                          ),
-                        )
-                      : Image.file(_image!, fit: BoxFit.contain),
+                  color: _isDragging
+                      ? Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.06)
+                      : null,
                 ),
+                child: _image == null
+                    ? Center(
+                        child: Text(
+                          _isDragging
+                              ? 'ここに画像をドロップ'
+                              : '名刺を撮影・ギャラリーから選択、\n「ファイルを選択」またはドラッグ＆ドロップで読み込めます',
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : Image.file(_image!, fit: BoxFit.contain),
               ),
             ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 8),
-              Text(_errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ],
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('撮影'),
-                    onPressed: _isProcessing ? null : () => _pickImage(ImageSource.camera),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('ギャラリー'),
-                    onPressed: _isProcessing ? null : () => _pickImage(ImageSource.gallery),
-                  ),
-                ),
-              ],
+          ),
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.camera_alt_outlined),
+                  label: const Text('撮影'),
+                  onPressed: _isProcessing
+                      ? null
+                      : () => _pickImage(ImageSource.camera),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('ギャラリー'),
+                  onPressed: _isProcessing
+                      ? null
+                      : () => _pickImage(ImageSource.gallery),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.folder_open_outlined),
+              label: const Text('ファイルを選択'),
+              onPressed: _isProcessing ? null : _browseFile,
+            ),
+          ),
+          if (kDebugMode) ...[
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                icon: const Icon(Icons.folder_open_outlined),
-                label: const Text('ファイルを選択'),
-                onPressed: _isProcessing ? null : _browseFile,
+                icon: const Icon(Icons.bug_report_outlined),
+                label: const Text('テスト画像を読み込む（開発用）'),
+                onPressed: _isProcessing ? null : _loadTestAsset,
               ),
             ),
-            if (kDebugMode) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.bug_report_outlined),
-                  label: const Text('テスト画像を読み込む（開発用）'),
-                  onPressed: _isProcessing ? null : _loadTestAsset,
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: (_image == null || _isProcessing) ? null : _runOcr,
-              child: _isProcessing
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('この名刺を読み取る'),
-            ),
-            if (_isProcessing) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'AIが名刺を読み取っています…（ローカルAIのため1分ほどかかる場合があります）',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-            ],
           ],
-        ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: (_image == null || _isProcessing) ? null : _runOcr,
+            child: _isProcessing
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('この名刺を読み取る'),
+          ),
+          if (_isProcessing) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'AIが名刺を読み取っています…（ローカルAIのため1分ほどかかる場合があります）',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -205,23 +229,53 @@ class PersonRegisterConfirmScreen extends ConsumerStatefulWidget {
   final OcrDraft draft;
 
   @override
-  ConsumerState<PersonRegisterConfirmScreen> createState() => _PersonRegisterConfirmScreenState();
+  ConsumerState<PersonRegisterConfirmScreen> createState() =>
+      _PersonRegisterConfirmScreenState();
 }
 
-class _PersonRegisterConfirmScreenState extends ConsumerState<PersonRegisterConfirmScreen> {
-  late final TextEditingController _fullName = TextEditingController(text: widget.draft.fullName);
-  late final TextEditingController _fullNameKana = TextEditingController(text: widget.draft.fullNameKana);
-  late final TextEditingController _companyName = TextEditingController(text: widget.draft.companyName);
-  late final TextEditingController _jobTitle = TextEditingController(text: widget.draft.jobTitle);
-  late final TextEditingController _email = TextEditingController(text: widget.draft.email);
-  late final TextEditingController _mobile = TextEditingController(text: widget.draft.mobile);
+class _PersonRegisterConfirmScreenState
+    extends ConsumerState<PersonRegisterConfirmScreen> {
+  late final TextEditingController _fullName = TextEditingController(
+    text: widget.draft.fullName,
+  );
+  late final TextEditingController _fullNameKana = TextEditingController(
+    text: widget.draft.fullNameKana,
+  );
+  late final TextEditingController _companyName = TextEditingController(
+    text: widget.draft.companyName,
+  );
+  late final TextEditingController _jobTitle = TextEditingController(
+    text: widget.draft.jobTitle,
+  );
+  late final TextEditingController _email = TextEditingController(
+    text: widget.draft.email,
+  );
+  late final TextEditingController _mobile = TextEditingController(
+    text: widget.draft.mobile,
+  );
   final TextEditingController _note = TextEditingController();
+  final TextEditingController _metPlace = TextEditingController();
+  final TextEditingController _voiceText = TextEditingController();
+  String? _occupationCode;
   bool _isSubmitting = false;
+  bool _isRefining = false;
   PersonListItem? _introducer;
+  // F-007: 名刺のQRコードから読み取ったSNSリンクの下書きを初期値として編集欄に渡す
+  late List<SnsLink> _snsLinks = widget.draft.snsLinks;
 
   @override
   void dispose() {
-    for (final c in [_fullName, _fullNameKana, _companyName, _jobTitle, _email, _mobile, _note]) {
+    for (final c in [
+      _fullName,
+      _fullNameKana,
+      _companyName,
+      _jobTitle,
+      _email,
+      _mobile,
+      _note,
+      _metPlace,
+      _voiceText,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -232,17 +286,60 @@ class _PersonRegisterConfirmScreenState extends ConsumerState<PersonRegisterConf
     if (picked != null) setState(() => _introducer = picked);
   }
 
-  Future<void> _confirm() async {
-    setState(() => _isSubmitting = true);
+  // F-007: 音声文字起こし（テキスト入力）が入力されている場合、名刺OCR結果と統合してAIが登録項目に反映する
+  Future<void> _refineWithVoice() async {
+    if (_voiceText.text.trim().isEmpty) return;
+    setState(() => _isRefining = true);
     try {
-      final person = await ref.read(personRepositoryProvider).create(
-            fullName: _fullName.text.trim(),
+      final refined = await ref
+          .read(personRepositoryProvider)
+          .refineOcrDraft(
+            fullName: _emptyToNull(_fullName.text),
             fullNameKana: _emptyToNull(_fullNameKana.text),
             companyName: _emptyToNull(_companyName.text),
             jobTitle: _emptyToNull(_jobTitle.text),
             email: _emptyToNull(_email.text),
             mobile: _emptyToNull(_mobile.text),
+            voiceText: _voiceText.text.trim(),
+          );
+      if (!mounted) return;
+      setState(() {
+        _fullName.text = refined.fullName ?? _fullName.text;
+        _fullNameKana.text = refined.fullNameKana ?? _fullNameKana.text;
+        _companyName.text = refined.companyName ?? _companyName.text;
+        _jobTitle.text = refined.jobTitle ?? _jobTitle.text;
+        _email.text = refined.email ?? _email.text;
+        _mobile.text = refined.mobile ?? _mobile.text;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AIが音声内容を反映しました。内容を確認してください。')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('AIへの反映に失敗しました: $e')));
+    } finally {
+      if (mounted) setState(() => _isRefining = false);
+    }
+  }
+
+  Future<void> _confirm() async {
+    setState(() => _isSubmitting = true);
+    try {
+      final person = await ref
+          .read(personRepositoryProvider)
+          .create(
+            fullName: _fullName.text.trim(),
+            fullNameKana: _emptyToNull(_fullNameKana.text),
+            companyName: _emptyToNull(_companyName.text),
+            jobTitle: _emptyToNull(_jobTitle.text),
+            occupationCode: _occupationCode,
+            email: _emptyToNull(_email.text),
+            mobile: _emptyToNull(_mobile.text),
             note: _emptyToNull(_note.text),
+            metPlace: _emptyToNull(_metPlace.text),
+            snsLinks: _snsLinks,
             sourceType: 'card_ocr',
             introducerPersonId: _introducer?.personId,
           );
@@ -251,7 +348,9 @@ class _PersonRegisterConfirmScreenState extends ConsumerState<PersonRegisterConf
       context.pushReplacement('/persons/${person.personId}/voice-memo');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('登録に失敗しました: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('登録に失敗しました: $e')));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -268,17 +367,104 @@ class _PersonRegisterConfirmScreenState extends ConsumerState<PersonRegisterConf
         children: [
           const Chip(label: Text('AI(OCR)による自動抽出結果です。内容を確認・修正してください。')),
           const SizedBox(height: 16),
-          TextField(controller: _fullName, decoration: const InputDecoration(labelText: '氏名', border: OutlineInputBorder())),
+          TextField(
+            controller: _fullName,
+            decoration: const InputDecoration(
+              labelText: '氏名',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _fullNameKana, decoration: const InputDecoration(labelText: '氏名カナ', border: OutlineInputBorder())),
+          TextField(
+            controller: _fullNameKana,
+            decoration: const InputDecoration(
+              labelText: '氏名カナ',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _companyName, decoration: const InputDecoration(labelText: '会社名', border: OutlineInputBorder())),
+          TextField(
+            controller: _companyName,
+            decoration: const InputDecoration(
+              labelText: '会社名',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _jobTitle, decoration: const InputDecoration(labelText: '役職', border: OutlineInputBorder())),
+          TextField(
+            controller: _jobTitle,
+            decoration: const InputDecoration(
+              labelText: '役職',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _email, decoration: const InputDecoration(labelText: 'メールアドレス', border: OutlineInputBorder())),
+          OccupationDropdown(
+            value: _occupationCode,
+            onChanged: (v) => setState(() => _occupationCode = v),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _mobile, decoration: const InputDecoration(labelText: '携帯番号', border: OutlineInputBorder())),
+          TextField(
+            controller: _email,
+            decoration: const InputDecoration(
+              labelText: 'メールアドレス',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _mobile,
+            decoration: const InputDecoration(
+              labelText: '携帯番号',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '音声での補足入力（任意）',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '名刺交換時の口頭補足をマイクボタンで話すか、直接テキストで入力すると、AIが名刺の読み取り結果と統合して上の項目に反映します',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  VoiceInputField(
+                    controller: _voiceText,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: '文字起こし（音声 or テキスト）',
+                      border: OutlineInputBorder(),
+                      hintText: '例：田中さんはABC商事の営業部長で、紹介者は佐藤さんとのこと',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: _isRefining
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome_outlined),
+                      label: Text(_isRefining ? 'AIが反映中…' : 'AIに反映'),
+                      onPressed: _isRefining ? null : _refineWithVoice,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _note,
@@ -291,17 +477,46 @@ class _PersonRegisterConfirmScreenState extends ConsumerState<PersonRegisterConf
             minLines: 3,
             maxLines: 8,
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _metPlace,
+            decoration: const InputDecoration(
+              labelText: 'どこで会ったか',
+              border: OutlineInputBorder(),
+              hintText: '例：〇〇異業種交流会',
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (widget.draft.snsLinks.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Chip(
+                label: Text(
+                  '名刺のQRコードから${widget.draft.snsLinks.length}件自動入力しました',
+                ),
+              ),
+            ),
+          SnsLinksEditor(
+            initialLinks: _snsLinks,
+            onChanged: (links) => _snsLinks = links,
+          ),
           const SizedBox(height: 16),
           Text('紹介者（任意）', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 4),
-          const Text('選択すると人脈グラフに「紹介者」関係が自動的に登録されます（AI不使用）', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          const Text(
+            '選択すると人脈グラフに「紹介者」関係が自動的に登録されます（AI不使用）',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
           const SizedBox(height: 8),
           if (_introducer case final introducer?)
             Card(
               child: ListTile(
                 title: Text(introducer.fullName),
                 subtitle: Text(introducer.companyName ?? ''),
-                trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => _introducer = null)),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _introducer = null),
+                ),
               ),
             )
           else
@@ -314,7 +529,11 @@ class _PersonRegisterConfirmScreenState extends ConsumerState<PersonRegisterConf
           FilledButton(
             onPressed: _isSubmitting ? null : _confirm,
             child: _isSubmitting
-                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text('この内容で登録する'),
           ),
         ],

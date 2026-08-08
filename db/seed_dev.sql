@@ -24,6 +24,18 @@ INSERT INTO m_industry (industry_code, industry_name, parent_code, sort_order, i
   ('N', '生活関連サービス業・娯楽業', NULL, 60, true)
 ON CONFLICT DO NOTHING;
 
+-- 職種マスタ（抜粋。人脈図F-006の階層グルーピングに使用）
+INSERT INTO m_occupation_type (occupation_code, occupation_name, sort_order, is_active) VALUES
+  ('SALES', '営業', 10, true),
+  ('ENGINEER', 'エンジニア', 20, true),
+  ('DESIGNER', 'デザイナー', 30, true),
+  ('MARKETING', 'マーケティング', 40, true),
+  ('EXECUTIVE', '経営者・役員', 50, true),
+  ('BACKOFFICE', 'バックオフィス（経理・総務・人事等）', 60, true),
+  ('CONSULTANT', 'コンサルタント', 70, true),
+  ('OTHER', 'その他', 999, true)
+ON CONFLICT DO NOTHING;
+
 -- 開発用組織・ユーザー
 INSERT INTO organizations (org_id, org_name, plan_type) VALUES
   ('00000000-0000-0000-0000-000000000001', 'GOEN開発用組織', 'personal')

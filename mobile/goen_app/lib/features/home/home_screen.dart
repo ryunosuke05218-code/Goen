@@ -23,22 +23,14 @@ class HomeScreen extends StatelessWidget {
         children: [
           Card(
             child: ListTile(
-              leading: const Icon(Icons.add_a_photo_outlined),
-              title: const Text('名刺を撮影して登録'),
-              subtitle: const Text('F-007 / F-009: 名刺撮影 → 音声メモで60秒以内に記録'),
-              onTap: () => context.push('/persons/new/card'),
-            ),
-          ),
-          Card(
-            child: ListTile(
               leading: const Icon(Icons.person_add_alt_1_outlined),
-              title: const Text('手入力で人物を登録'),
-              onTap: () => context.push('/persons/new/manual'),
+              title: const Text('人物を登録'),
+              subtitle: const Text('F-007 / F-002: 名刺撮影・手入力を切り替えて登録できます'),
+              onTap: () => context.push('/persons/new'),
             ),
           ),
           const SizedBox(height: 8),
           _QuickNav(icon: Icons.people_outline, label: '人物一覧', route: '/persons'),
-          _QuickNav(icon: Icons.search, label: '曖昧検索', route: '/search'),
           _QuickNav(icon: Icons.hub_outlined, label: '人脈マップ', route: '/network-map'),
           _QuickNav(icon: Icons.edit_note_outlined, label: '例文作成', route: '/intro-letter'),
         ],

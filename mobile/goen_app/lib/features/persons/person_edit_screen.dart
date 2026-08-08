@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/person_models.dart';
+import 'occupation_picker.dart';
 import 'person_repository.dart';
+import 'sns_links_editor.dart';
 
 const _visibilityOptions = ['private', 'team', 'org'];
 
@@ -35,16 +37,19 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
   late final _email = TextEditingController(text: widget.person.email);
   late final _address = TextEditingController(text: widget.person.address);
   late final _note = TextEditingController(text: widget.person.note);
+  late final _metPlace = TextEditingController(text: widget.person.metPlace);
+  late String? _occupationCode = widget.person.occupationCode;
   late int _importance = widget.person.importance;
   late bool _importanceIsManual = widget.person.importanceIsManual;
   late String _visibility = widget.person.visibility;
+  late List<SnsLink> _snsLinks = widget.person.snsLinks;
   bool _isSubmitting = false;
 
   @override
   void dispose() {
     for (final c in [
       _fullName, _fullNameKana, _companyName, _department, _jobTitle,
-      _tel, _mobile, _email, _address, _note,
+      _tel, _mobile, _email, _address, _note, _metPlace,
     ]) {
       c.dispose();
     }
@@ -64,6 +69,7 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
             companyName: _emptyToNull(_companyName.text),
             department: _emptyToNull(_department.text),
             jobTitle: _emptyToNull(_jobTitle.text),
+            occupationCode: _occupationCode,
             importance: _importance,
             importanceIsManual: _importanceIsManual,
             visibility: _visibility,
@@ -72,6 +78,8 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
             email: _emptyToNull(_email.text),
             address: _emptyToNull(_address.text),
             note: _emptyToNull(_note.text),
+            metPlace: _emptyToNull(_metPlace.text),
+            snsLinks: _snsLinks,
           );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -122,6 +130,11 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
               decoration: const InputDecoration(labelText: '役職', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
+            OccupationDropdown(
+              value: _occupationCode,
+              onChanged: (v) => setState(() => _occupationCode = v),
+            ),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _tel,
               decoration: const InputDecoration(labelText: '電話番号', border: OutlineInputBorder()),
@@ -155,6 +168,20 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
               ),
               minLines: 3,
               maxLines: 8,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _metPlace,
+              decoration: const InputDecoration(
+                labelText: 'どこで会ったか',
+                border: OutlineInputBorder(),
+                hintText: '例：〇〇異業種交流会',
+              ),
+            ),
+            const SizedBox(height: 16),
+            SnsLinksEditor(
+              initialLinks: _snsLinks,
+              onChanged: (links) => _snsLinks = links,
             ),
             const Divider(height: 32),
             Text('重要度', style: Theme.of(context).textTheme.titleSmall),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../network_map/graph_view.dart';
+import '../network_map/network_tree_view.dart';
 import 'models/person_models.dart';
 import 'person_repository.dart';
 
@@ -12,7 +13,7 @@ final personNetworkGraphProvider = FutureProvider.autoDispose.family((ref, Strin
 });
 
 /// 特定人物を起点とした人脈マップ（人物カルテの「人脈グラフを見る」から遷移）。
-/// 表示自体は自分中心マップ（S-009）と同じ GraphView を再利用する。
+/// 表示自体は自分中心マップ（S-009）と同じ NetworkTreeView を再利用する。
 class PersonNetworkScreen extends ConsumerStatefulWidget {
   const PersonNetworkScreen({super.key, required this.rootPersonId});
 
@@ -69,16 +70,15 @@ class _PersonNetworkScreenState extends ConsumerState<PersonNetworkScreen> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Text(
-                  'ピンチで拡大縮小、ノードをタップすると人物カルテを開きます。右上のアイコンで表示するつながりを絞り込めます。',
+                  '業種＞職種＞会社名＞人物の順にグループ化しています。グループをタップすると折りたたみ、人物をタップすると人物カルテを開きます。右上のアイコンで表示するつながりを絞り込めます。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                   textAlign: TextAlign.center,
                 ),
               ),
               Expanded(
-                child: GraphView(
+                child: NetworkTreeView(
                   graph: filteredGraph,
-                  centerPersonId: widget.rootPersonId,
-                  onNodeTap: (personId) => context.push('/persons/$personId'),
+                  onPersonTap: (personId) => context.push('/persons/$personId'),
                 ),
               ),
             ],

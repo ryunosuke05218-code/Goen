@@ -42,10 +42,14 @@ dependencies:
   intl: ^0.20.3
   desktop_drop: ^0.7.1
   url_launcher: ^6.3.2
+  shared_preferences: ^2.5.3
+  local_auth: ^2.3.0
   # 11.0.0以降はandroid/build.gradleにKotlin Androidプラグインの適用が抜けている既知の回帰があり、
   # 「symbol not found: FilePickerPlugin」でAndroidビルドが失敗する（未修正の場合は10.3.10に固定する）。
   # https://github.com/miguelpruivo/flutter_file_picker/issues/1973
   file_picker: 10.3.10
+  # F-007/F-009 音声入力: OS標準の音声認識（Android/iOSネイティブ機能）を使うため追加費用・APIキー不要
+  speech_to_text: ^7.3.0
 
 dev_dependencies:
   flutter_test:

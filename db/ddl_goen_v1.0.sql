@@ -23,7 +23,7 @@ DROP TABLE IF EXISTS
   h_person_relations, person_relations, h_person_tags, person_tags,
   h_person_profiles, person_profiles, h_persons, persons,
   h_tags, tags, h_companies, companies, h_users, users, h_organizations, organizations,
-  m_prefecture, m_industry
+  m_prefecture, m_industry, m_occupation_type
   CASCADE;
 
 -- ---------------------------------------------------------------------
@@ -115,6 +115,14 @@ CREATE TABLE m_prefecture (
   region_name text NOT NULL
 );
 
+-- 職種マスタ（要件Q-011で決定。人脈図（F-006）の業種＞職種＞会社名＞人物の階層グルーピングに使用）
+CREATE TABLE m_occupation_type (
+  occupation_code varchar(10) PRIMARY KEY,
+  occupation_name text NOT NULL,
+  sort_order      integer NOT NULL DEFAULT 0,
+  is_active       boolean NOT NULL DEFAULT true
+);
+
 -- =====================================================================
 -- 2. 準マスタ ※共通カラムあり・履歴あり
 -- =====================================================================
@@ -157,6 +165,7 @@ CREATE TABLE users (
   role            text NOT NULL CHECK (role IN ('member','manager','org_admin','sys_admin')),
   status          text NOT NULL CHECK (status IN ('active','suspended','retired')) DEFAULT 'active',
   last_login_at   timestamptz,
+  allow_mutual_registration boolean NOT NULL DEFAULT true, -- F-028: 相互人脈登録を受け入れるか（設定画面でON/OFF切替可）
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      uuid,
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -259,13 +268,15 @@ CREATE TABLE persons (
   full_name_kana       text,
   department           text,
   job_title            text,
+  occupation_code      varchar(10) REFERENCES m_occupation_type(occupation_code), -- 職種（役職job_titleとは別概念）。人脈図(F-006)の階層グルーピングに使用
   importance           smallint NOT NULL CHECK (importance BETWEEN 1 AND 5) DEFAULT 3,
   importance_is_manual boolean NOT NULL DEFAULT false,
   visibility           text NOT NULL CHECK (visibility IN ('private','team','org')) DEFAULT 'private',
   first_met_at         date,
+  met_place            text, -- どこで会ったか（例：「〇〇異業種交流会」）。RAGチャンク(profile)にも含める
   last_contact_at      timestamptz,
   introducer_person_id uuid REFERENCES persons(person_id),
-  source_type          text NOT NULL CHECK (source_type IN ('card_ocr','manual','import')),
+  source_type          text NOT NULL CHECK (source_type IN ('card_ocr','manual','import','mutual_registration')),
   created_at           timestamptz NOT NULL DEFAULT now(),
   created_by           uuid,
   updated_at           timestamptz NOT NULL DEFAULT now(),
@@ -276,6 +287,7 @@ CREATE INDEX ix_persons_owner_last_contact ON persons (owner_user_id, last_conta
 CREATE INDEX ix_persons_org_company ON persons (org_id, company_id);
 CREATE INDEX ix_persons_full_name_kana ON persons (full_name_kana);
 CREATE INDEX ix_persons_introducer ON persons (introducer_person_id);
+CREATE INDEX ix_persons_occupation_code ON persons (occupation_code);
 
 CREATE TABLE h_persons (
   LIKE persons INCLUDING DEFAULTS,
@@ -301,7 +313,7 @@ CREATE TABLE person_profiles (
   pref_code     char(2) REFERENCES m_prefecture(pref_code),
   address       text,
   url           text,
-  sns_accounts  jsonb NOT NULL DEFAULT '{}'::jsonb,
+  sns_accounts  jsonb NOT NULL DEFAULT '[]'::jsonb, -- [{"label": "Instagram", "url": "https://..."}, ...] の配列（何個でも追加可能。F-007のQRコード読み取りでも自動追加される）
   birthday      date,
   note          text,
   created_at    timestamptz NOT NULL DEFAULT now(),
@@ -633,6 +645,7 @@ CREATE TABLE ai_person_cards (
   llm_model         text NOT NULL,
   generated_at      timestamptz NOT NULL DEFAULT now(),
   input_contact_ids uuid[] NOT NULL DEFAULT '{}',
+  input_sources     jsonb NOT NULL DEFAULT '[]'::jsonb, -- 接点以外の追加ソース（HPリンク・資料ファイル等の参照情報、F-010）
   created_at        timestamptz NOT NULL DEFAULT now(),
   created_by        uuid,
   updated_at        timestamptz NOT NULL DEFAULT now(),
@@ -680,6 +693,7 @@ CREATE TABLE persons_read (
   full_name_kana  text,
   company_name    text,
   industry_name   text,
+  occupation_name text,
   pref_name       text,
   job_title       text,
   importance      smallint NOT NULL,
@@ -690,6 +704,7 @@ CREATE TABLE persons_read (
   contact_count   integer NOT NULL DEFAULT 0,
   open_action     jsonb,
   search_text     text NOT NULL DEFAULT '',
+  created_at      timestamptz, -- 元のpersons.created_atを非正規化（F-003の登録順ソート用。結合を避けるため）
   refreshed_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_persons_read_owner_importance ON persons_read (owner_user_id, importance DESC, last_contact_at DESC);

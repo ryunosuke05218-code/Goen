@@ -70,6 +70,8 @@
 	<string>名刺を撮影して人物情報を登録するために使用します（F-007）。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>出会いの直後に音声メモを録音するために使用します（F-009）。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>音声メモを文字に変換するために使用します（F-009）。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ギャラリーから名刺画像を選択するために使用します。</string>
 </dict>

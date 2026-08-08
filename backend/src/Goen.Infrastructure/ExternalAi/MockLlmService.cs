@@ -7,11 +7,13 @@ public class MockLlmService : ILlmService
     public Task<PersonCardDraft> GeneratePersonCardAsync(
         string fullName,
         IReadOnlyCollection<string> sourceTexts,
+        IReadOnlyCollection<AttachmentInput>? attachments = null,
         CancellationToken cancellationToken = default)
     {
         var combined = string.Join(" / ", sourceTexts);
+        var attachmentNote = attachments is { Count: > 0 } ? $"（添付{attachments.Count}件を含む）" : "";
         var draft = new PersonCardDraft(
-            Summary: $"（ダミー要約）{fullName}氏。{(combined.Length > 0 ? "入力情報より生成。" : "情報が少ないため簡易的な要約です。")}",
+            Summary: $"（ダミー要約）{fullName}氏。{(combined.Length > 0 ? $"入力情報より生成。{attachmentNote}" : "情報が少ないため簡易的な要約です。")}",
             Business: combined.Length > 0 ? "（ダミー）詳細は入力情報を確認してください。" : null,
             Issues: null,
             IntroducerName: null,

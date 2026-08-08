@@ -48,10 +48,10 @@ class _PersonPickerSheetState extends ConsumerState<_PersonPickerSheet> {
   Future<void> _search(String query) async {
     setState(() => _isLoading = true);
     try {
-      final results = await ref.read(personRepositoryProvider).list(query: query.isEmpty ? null : query);
+      final response = await ref.read(personRepositoryProvider).list(query: query.isEmpty ? null : query);
       if (!mounted) return;
       setState(() {
-        _results = results.where((p) => p.personId != widget.excludePersonId).toList();
+        _results = response.items.where((p) => p.personId != widget.excludePersonId).toList();
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);

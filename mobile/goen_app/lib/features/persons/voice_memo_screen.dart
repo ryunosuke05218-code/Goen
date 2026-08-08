@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/voice_input_field.dart';
 import 'person_repository.dart';
 
 /// S-005 音声メモ入力画面（F-009）。
-/// 実機マイク録音の連携は今後のフェーズで追加する。現段階では業務ルールに定める
-/// 「テキストによる直接入力（代替手段）」のみをサポートし、接点ログとして保存する。
+/// マイクボタンでOS標準の音声認識を使って文字起こしするか、直接テキストで入力し、接点ログとして保存する。
 class VoiceMemoScreen extends ConsumerStatefulWidget {
   const VoiceMemoScreen({super.key, required this.personId});
 
@@ -62,10 +62,10 @@ class _VoiceMemoScreenState extends ConsumerState<VoiceMemoScreen> {
           children: [
             const Text('出会いの直後に、事業内容・課題・紹介者・次回アクション・趣味などを一言で残しましょう（30秒目安）。'),
             const SizedBox(height: 4),
-            const Text('※マイク録音は今後のフェーズで対応予定です。現在はテキスト入力で代替できます。',
+            const Text('マイクボタンをタップして話すか、直接テキストで入力できます。',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 16),
-            TextField(
+            VoiceInputField(
               controller: _memoController,
               maxLines: 6,
               decoration: const InputDecoration(

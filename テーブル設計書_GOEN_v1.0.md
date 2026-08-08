@@ -3,9 +3,9 @@
 | 項目 | 内容 |
 |---|---|
 | プロジェクト名 | GOEN（HUMAN NETWORK OS／人脈OS） |
-| 文書バージョン | 1.3 |
+| 文書バージョン | 1.7 |
 | 作成日 | 2026/07/20 |
-| 最終更新日 | 2026/07/25 |
+| 最終更新日 | 2026/08/05 |
 | 作成者 | 阿部竜之介 |
 | 対象要件 | 要件定義書 v1.2（5.6 データ要件、6 非機能要件） |
 
@@ -17,6 +17,10 @@
 | 1.1 | 2026/07/25 | 実装内容に合わせて更新。`rag_chunks`の埋め込み次元数を開発時の実測値（multilingual-e5-large、1024次元）に修正し`embedding_dim`列を追加、`source_type`に人物プロフィール用の`profile`を追加（4.2・7.17節）。埋め込みモデルの確定内容を反映（4.4節、D-001解消）。日本語全文検索の採用方式を確定（D-002解消）。`person_relations`の生成経路（AI不使用の自動／手動／AI提案の3方式）を追記（7.8節）。AIプロバイダ構成の詳細は新設の基本設計書_GOEN_v1.0.mdへ分離 | 阿部 |
 | 1.2 | 2026/07/25 | `person_relations.relation_type`を`referrer`/`community`の2種類に縮小（`colleague`/`client`/`partner`/`other`を廃止）。同僚・取引先等の組織上／取引上の関係は`person_profiles.note`へテキストとして持たせ、RAG検索の補足情報として提示する方式に変更（7.8節）。移行用に`migrations/0002_person_relations_slim.sql`を追加 | 阿部 |
 | 1.3 | 2026/08/02 | 通知機能（F-012、未実装のプレースホルダーのみ）の廃止に伴い`notifications`テーブルと`users.notify_hour`/`notify_settings`列を削除（7.4・7.20節）。代替の紹介文作成機能（F-026）は永続化なしのためテーブル追加なし。移行用に`migrations/0003_drop_notifications.sql`を追加 | 阿部 |
+| 1.4 | 2026/08/02 | 人物登録画面に「どこで会ったか」欄・SNSリンク欄（複数追加可）を追加。`persons.met_place`を新設（7.6節）。`person_profiles.sns_accounts`は未使用列だったが、サービス名キーのオブジェクト形式から`{label, url}`の配列形式へ意味を変更し、名刺OCR時のQRコード読み取り結果もここに格納する方式とした（7.7節）。移行用に`migrations/0004_add_met_place_and_sns_links.sql`を追加 | 阿部 |
+| 1.5 | 2026/08/03 | F-024（名刺管理アプリ「eight」との連携）がAPI連携ではなくCSVインポート方式に変更されたことを反映し、`import_jobs`の説明にeight由来のCSV移行も対象である旨を明記（7.20節） | 阿部 |
+| 1.6 | 2026/08/04 | 要件定義書v1.7の追加要望を反映（設計のみ、DDL・マイグレーションは未実施）。`persons.occupation_type`（職種、F-006の人脈図階層グルーピング用）を新設し、`persons.source_type`のCHECK許容値に`mutual_registration`（F-028）を追加（7.6節）。`users.allow_mutual_registration`を新設（7.4節）。`ai_person_cards.input_sources`を新設し、HPリンク・資料ファイル等の追加ソースの参照情報を保持できるようにした。あわせて前回世代の要約を踏まえた更新方式を設計メモとして明記（7.12節） | 阿部 |
+| 1.7 | 2026/08/05 | 要件定義書v1.8でのQ-011解消を反映。職種を自由入力ではなくマスタ化することとし、静的マスタ`m_occupation_type`を新設（7.21節）。`persons.occupation_type`（text）を`persons.occupation_code`（`m_occupation_type`へのFK）に変更（7.6節）。`persons_read.occupation_name`（非正規化）を追加（7.16節）。ER図・テーブル一覧・履歴対象外テーブル一覧を更新。DDL・マイグレーションは未実施 | 阿部 |
 
 ---
 
@@ -104,6 +108,7 @@ erDiagram
     users ||--o{ persons : "担当"
     companies ||--o{ persons : "所属"
     m_industry ||--o{ companies : "業種"
+    m_occupation_type ||--o{ persons : "職種"
     persons ||--|| person_profiles : "詳細"
     persons ||--|| persons_read : "参照モデル"
     persons ||--o{ person_tags : ""
@@ -153,7 +158,7 @@ erDiagram
 
 | テーブル | 理由 |
 |---|---|
-| `m_industry` / `m_prefecture` | 静的マスタ。変更時は手順書に基づく管理作業とし、監査ログで追跡する |
+| `m_industry` / `m_prefecture` / `m_occupation_type` | 静的マスタ。変更時は手順書に基づく管理作業とし、監査ログで追跡する |
 | `ai_person_cards` | テーブル自体が世代管理構造（生成のたびに新行を追加し、最新行のみ `is_latest = true`）。二重に履歴を持たない |
 | `persons_read` | 原本から再構築可能な派生データ |
 | `rag_chunks` | 原本から再生成可能な派生データ |
@@ -299,6 +304,7 @@ erDiagram
 |---|---|---|---|---|---|---|
 | 1 | ① 静的マスタ | `m_industry` | 業種マスタ | 約100 | － | － |
 | 2 | ① 静的マスタ | `m_prefecture` | 都道府県マスタ | 47 | － | － |
+| 2a | ① 静的マスタ | `m_occupation_type` | 職種マスタ | 数十件想定 | － | － |
 | 3 | ② 準マスタ | `organizations` | 組織 | 〜100 | ○ | － |
 | 4 | ② 準マスタ | `users` | ユーザー | 〜1,000 | ○ | － |
 | 5 | ② 準マスタ | `companies` | 企業 | 〜20,000 | ○ | － |
@@ -370,6 +376,7 @@ erDiagram
 | role | text | NN, CHECK | ロール（`member` / `manager` / `org_admin` / `sys_admin`） |
 | status | text | NN, CHECK | 状態（`active` / `suspended` / `retired`）。退職者の人脈引き継ぎ（F-019）に使用 |
 | last_login_at | timestamptz | | 最終ログイン日時 |
+| allow_mutual_registration | boolean | NN, DEFAULT true | 相互人脈登録（F-028）を許可するか。falseの場合、自分のメールアドレス宛の名刺登録があっても自動的な人物登録を行わない（既定値は要件Q-013で最終確定） |
 
 ### 7.5 companies（企業）※共通カラムあり
 
@@ -399,16 +406,18 @@ erDiagram
 | full_name | text | NN | 氏名 |
 | full_name_kana | text | | 氏名カナ |
 | department | text | | 部署 |
-| job_title | text | | 役職 |
+| job_title | text | | 役職（部長・課長等の肩書き） |
+| occupation_code | varchar(10) | FK(`m_occupation_type`) | 職種コード（営業・エンジニア・デザイナー等の職務分類、7.21節）。役職(`job_title`)とは別概念。人脈図（F-006）の階層グルーピングに使用する新設項目。未設定は「職種未設定」として1グループに集約する |
 | importance | smallint | NN, CHECK(1-5) | 重要度（★1〜★5） |
 | importance_is_manual | boolean | NN | 重要度を手動設定したか（trueの場合F-022の自動算出で上書きしない） |
 | visibility | text | NN, CHECK | 公開範囲（`private` / `team` / `org`） |
 | first_met_at | date | | 初回接点日 |
+| met_place | text | | どこで会ったか（例：「〇〇異業種交流会」）。人物登録画面で入力する。RAGチャンク（`source_type='profile'`）にも含め、「去年、京都の交流会で会った人」のような検索の手がかりとする |
 | last_contact_at | timestamptz | | 最終接触日時（F-012の未接触抽出に使用） |
 | introducer_person_id | uuid | FK(self) | 紹介者となった人物ID |
-| source_type | text | NN, CHECK | 登録経路（`card_ocr` / `manual` / `import`） |
+| source_type | text | NN, CHECK | 登録経路（`card_ocr` / `manual` / `import` / `mutual_registration`）。`mutual_registration`はF-028により相手ユーザー側で自動生成されたことを示す |
 
-主なインデックス：`(owner_user_id, last_contact_at DESC)`、`(org_id, company_id)`、`(full_name_kana)`、`(introducer_person_id)`
+主なインデックス：`(owner_user_id, last_contact_at DESC)`、`(org_id, company_id)`、`(full_name_kana)`、`(introducer_person_id)`、`(occupation_code)`（人脈図の階層グルーピング用）
 
 ### 7.7 person_profiles（人物詳細）※共通カラムあり
 
@@ -421,7 +430,7 @@ erDiagram
 | pref_code | char(2) | FK | 都道府県コード |
 | address | text | | 住所 |
 | url | text | | URL |
-| sns_accounts | jsonb | | SNSアカウント（キー＝サービス名） |
+| sns_accounts | jsonb | | SNSリンク。`[{"label": "Instagram", "url": "https://..."}, ...]`の配列で、人物カルテ画面で何個でも追加できる。名刺OCR（F-007）でQRコードが検出された場合はリンクの下書きとしてここに自動追加される |
 | birthday | date | | 生年月日 |
 | note | text | | 自由記述メモ（長文）。同僚・取引先等、person_relationsにエッジ化しない人脈の文脈情報もここに記録し、RAGチャンク（`source_type='profile'`）を通じてAIアシスタントの補足情報検索の対象になる |
 
@@ -517,9 +526,12 @@ erDiagram
 | field_sources | jsonb | NN | 項目ごとの生成元（`ai` / `user`）。利用者が修正した項目をAIが上書きしないための制御に使用（F-010の業務ルール） |
 | llm_model | text | NN | 使用モデル名 |
 | generated_at | timestamptz | NN | 生成日時 |
-| input_contact_ids | uuid[] | | 生成入力に用いた接点IDの配列 |
+| input_contact_ids | uuid[] | | 生成入力に用いた接点IDの配列（接点履歴のメモ・文字起こしを含む） |
+| input_sources | jsonb | NOT NULL DEFAULT '[]' | 接点以外の追加ソース（HPリンク・資料ファイル等）の参照情報。`[{"type": "url", "value": "https://..."}, {"type": "file", "value": "ファイル名"}]`の配列。原本ファイルは永続化せず、生成時に使用した根拠の記録のみを残す |
 
 一意インデックス：`(person_id) WHERE is_latest`（最新世代が常に1件であることを保証し、参照時のソートを不要にする）
+
+**設計メモ（前回世代の要約を踏まえた更新）**：`GenerateCard`実行時は、既存の最新世代（`is_latest = true`）が存在すればその`summary`等の内容もLLMへの入力に含め、「前回要約＋新規情報」をもとに次の世代を生成する。画面側は`GET /api/persons/{id}`のレスポンスに含まれる最新世代を毎回取得して表示するため、クライアント側だけで一時的に保持している状態は存在しない（要件A-013）。
 
 ### 7.13 next_actions（次回アクション）※共通カラムあり
 
@@ -589,6 +601,7 @@ erDiagram
 | full_name_kana | text | | 氏名カナ |
 | company_name | text | | 企業名（非正規化） |
 | industry_name | text | | 業種名（非正規化） |
+| occupation_name | text | | 職種名（非正規化。`m_occupation_type`をJOINせず人脈図ツリー（F-006）を描画するために保持） |
 | pref_name | text | | 都道府県名（非正規化） |
 | job_title | text | | 役職 |
 | importance | smallint | NN | 重要度 |
@@ -599,6 +612,7 @@ erDiagram
 | contact_count | integer | NN | 接点件数 |
 | open_action | jsonb | | 未完了の次回アクション（内容・期限） |
 | search_text | text | NN | 全文検索用の連結テキスト |
+| created_at | timestamptz | | 元の`persons.created_at`を非正規化（F-003の登録順ソート用。結合を避けるため） |
 | refreshed_at | timestamptz | NN | 再構築日時 |
 
 インデックス：`(owner_user_id, importance DESC, last_contact_at DESC)`、`(org_id, visibility)`、`search_text` への全文検索インデックス
@@ -675,7 +689,22 @@ pgvectorへの読み書きは追加のNuGetパッケージ（`Pgvector.EntityFra
 | `briefs` | 商談前ブリーフ（F-014）。`person_id`、生成日時、要点、質問候補、提案候補、引用元URL配列を保持。追記型 |
 | `auth_tokens` | リフレッシュトークン。ハッシュ値・端末情報・有効期限・失効日時を保持 |
 | `ai_api_logs` | 外部AI API呼出ログ。API種別、モデル、トークン数、コスト、応答時間、成否。リスクR-003のコスト監視に使用 |
-| `import_jobs` | CSVインポートジョブ。ファイル名、件数、成功／失敗件数、エラー明細。移行（I-007）に使用 |
+| `import_jobs` | CSVインポートジョブ。ファイル名、件数、成功／失敗件数、エラー明細。移行（I-007の現行人脈管理グラフサイト、F-024のeightからのCSV移行）に共通で使用 |
+
+### 7.21 m_occupation_type（職種マスタ）※共通カラムなし・履歴なし
+
+要件Q-011の解消により新設。`m_industry`（業種マスタ）と同じ設計方針（静的マスタ、全件キャッシュ前提、履歴不要）とする。
+
+| カラム名 | 型 | 制約 | 説明 |
+|---|---|---|---|
+| occupation_code | varchar(10) | PK | 職種コード |
+| occupation_name | text | NN | 職種名（例：営業、エンジニア、デザイナー、経営者、バックオフィス 等） |
+| sort_order | integer | NN, DEFAULT 0 | 表示順 |
+| is_active | boolean | NN, DEFAULT true | 有効フラグ |
+
+`m_industry`と異なり親子階層（`parent_code`）は持たない（フラットな分類とする）。初期データ（具体的な職種項目の洗い出し）は詳細設計時に確定する（基本設計書B-007）。
+
+`persons`テーブルは`job_title`（役職・自由入力）とは別に`occupation_code`（職種・本マスタのFK）を持つ（7.6節）。
 
 ---
 

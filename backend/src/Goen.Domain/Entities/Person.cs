@@ -10,10 +10,12 @@ public class Person
     public string? FullNameKana { get; set; }
     public string? Department { get; set; }
     public string? JobTitle { get; set; }
+    public string? OccupationCode { get; set; }
     public short Importance { get; set; } = 3; // 1-5
     public bool ImportanceIsManual { get; set; }
     public string Visibility { get; set; } = "private"; // private / team / org
     public DateOnly? FirstMetAt { get; set; }
+    public string? MetPlace { get; set; }
     public DateTimeOffset? LastContactAt { get; set; }
     public Guid? IntroducerPersonId { get; set; }
     public string SourceType { get; set; } = "manual"; // card_ocr / manual / import
@@ -25,6 +27,7 @@ public class Person
     public int Version { get; set; }
 
     public Company? Company { get; set; }
+    public OccupationType? Occupation { get; set; }
     public Person? IntroducerPerson { get; set; }
     public PersonProfile? Profile { get; set; }
     public ICollection<Contact> Contacts { get; set; } = new List<Contact>();
