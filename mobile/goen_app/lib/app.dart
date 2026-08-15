@@ -5,11 +5,16 @@ import 'package:go_router/go_router.dart';
 import 'core/auth_session.dart';
 import 'core/display_settings.dart';
 import 'core/providers.dart';
+import 'features/ai_assistant/ai_assistant_history_screen.dart';
 import 'features/ai_assistant/ai_assistant_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/unlock_screen.dart';
+import 'features/dashboard/dashboard_screen.dart';
 import 'features/home/home_screen.dart';
+import 'features/home/main_bottom_nav_bar.dart';
+import 'features/intro_letter/intro_letter_history_screen.dart';
 import 'features/intro_letter/intro_letter_screen.dart';
+import 'features/masters/master_management_screen.dart';
 import 'features/network_map/network_map_screen.dart';
 import 'features/network_map/other_user_network_screen.dart';
 import 'features/persons/models/person_models.dart';
@@ -63,7 +68,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', builder: (context, state) => const _SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/unlock', builder: (context, state) => const UnlockScreen()),
-      GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
+      GoRoute(
+        path: '/home',
+        builder: (context, state) {
+          final tab = int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0;
+          return HomeScreen(initialIndex: tab.clamp(0, mainNavTabs.length - 1));
+        },
+      ),
+      GoRoute(path: '/dashboard', builder: (context, state) => const DashboardScreen()),
       GoRoute(path: '/persons', builder: (context, state) => const PersonListScreen()),
       GoRoute(path: '/persons/new', builder: (context, state) => const PersonRegisterScreen()),
       GoRoute(
@@ -103,9 +115,29 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/network-map', builder: (context, state) => const NetworkMapScreen()),
       GoRoute(path: '/network-map/ai-assistant', builder: (context, state) => const AiAssistantScreen()),
+      GoRoute(
+        path: '/network-map/ai-assistant/history',
+        builder: (context, state) => const AiAssistantHistoryScreen(),
+      ),
       GoRoute(path: '/network-map/other-user', builder: (context, state) => const OtherUserNetworkScreen()),
-      GoRoute(path: '/intro-letter', builder: (context, state) => const IntroLetterScreen()),
+      GoRoute(
+        path: '/intro-letter',
+        builder: (context, state) {
+          // F-031: AI指示画面から対象人物・要件を引き継いで開始する場合に使う
+          final extra = state.extra;
+          if (extra is IntroLetterPrefill) {
+            return IntroLetterScreen(
+              initialPersonId: extra.personId,
+              initialPersonName: extra.personName,
+              initialRequirement: extra.requirement,
+            );
+          }
+          return const IntroLetterScreen();
+        },
+      ),
+      GoRoute(path: '/intro-letter/history', builder: (context, state) => const IntroLetterHistoryScreen()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+      GoRoute(path: '/masters/manage', builder: (context, state) => const MasterManagementScreen()),
     ],
   );
 });

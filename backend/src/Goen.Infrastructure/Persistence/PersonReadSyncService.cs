@@ -30,9 +30,12 @@ public class PersonReadSyncService
             return;
         }
 
-        var industryName = person.Company?.IndustryCode is null
+        // 業種は「人物が選んだ職種に紐づく業種」を優先する（F-030）。会社のindustry_codeは入力経路がなく
+        // 実質未設定のままのため、職種側が未設定の場合のみ補助的にフォールバックする。
+        var industryCode = person.Occupation?.IndustryCode ?? person.Company?.IndustryCode;
+        var industryName = industryCode is null
             ? null
-            : await _db.Industries.Where(i => i.IndustryCode == person.Company.IndustryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);
+            : await _db.Industries.Where(i => i.IndustryCode == industryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);
 
         var prefName = person.Profile?.PrefCode is null
             ? null
@@ -72,7 +75,6 @@ public class PersonReadSyncService
         read.OccupationName = person.Occupation?.OccupationName;
         read.PrefName = prefName;
         read.JobTitle = person.JobTitle;
-        read.Importance = person.Importance;
         read.Summary = latestCard?.Summary;
         read.Issues = latestCard?.Issues;
         read.LastContactAt = person.LastContactAt;
@@ -85,5 +87,16 @@ public class PersonReadSyncService
         read.RefreshedAt = DateTimeOffset.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    // 職種の業種紐付けを後から変更した場合、その職種を使用中の全人物のindustry_nameを即時再同期する
+    // （通常は人物側の書き込み時にしかRefreshAsyncが呼ばれないため、マスタ側の変更だけでは反映されない）
+    public async Task RefreshAllForOccupationAsync(string occupationCode, CancellationToken ct = default)
+    {
+        var personIds = await _db.Persons.Where(p => p.OccupationCode == occupationCode).Select(p => p.PersonId).ToListAsync(ct);
+        foreach (var personId in personIds)
+        {
+            await RefreshAsync(personId, ct);
+        }
     }
 }

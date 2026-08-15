@@ -43,7 +43,7 @@ public class NetworkController : ControllerBase
             ct);
 
         return Ok(new NetworkGraphResponse(
-            graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.IndustryName, n.OccupationName, n.Importance, n.Depth, n.IsSelf)).ToList(),
+            graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.IndustryName, n.OccupationName, n.Depth, n.IsSelf)).ToList(),
             graph.Edges.Select(e => new NetworkEdgeResponse(e.RelationId, e.FromPersonId, e.ToPersonId, e.RelationType, e.Strength)).ToList()));
     }
 

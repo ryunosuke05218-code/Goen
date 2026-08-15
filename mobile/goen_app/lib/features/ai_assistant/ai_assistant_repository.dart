@@ -25,4 +25,9 @@ class AiAssistantRepository {
     );
     return AssistantResult.fromJson(response.data as Map<String, dynamic>);
   }
+
+  Future<List<AiAssistantHistoryItem>> getHistory() async {
+    final response = await _dio.get('/api/ai-assistant/history');
+    return (response.data as List).map((e) => AiAssistantHistoryItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
 }

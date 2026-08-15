@@ -51,3 +51,31 @@ class AssistantResult {
         hints: (json['hints'] as List).map((e) => AssistantHint.fromJson(e as Map<String, dynamic>)).toList(),
       );
 }
+
+// AI指示の過去の質問・回答履歴（1件）。人脈図画面から過去のやり取りを読み返すために使う。
+class AiAssistantHistoryItem {
+  AiAssistantHistoryItem({
+    required this.queryId,
+    required this.instruction,
+    required this.answer,
+    required this.routes,
+    required this.hints,
+    required this.createdAt,
+  });
+
+  final String queryId;
+  final String instruction;
+  final String answer;
+  final List<AssistantRoute> routes;
+  final List<AssistantHint> hints;
+  final DateTime createdAt;
+
+  factory AiAssistantHistoryItem.fromJson(Map<String, dynamic> json) => AiAssistantHistoryItem(
+        queryId: json['queryId'] as String,
+        instruction: json['instruction'] as String,
+        answer: json['answer'] as String,
+        routes: (json['routes'] as List).map((e) => AssistantRoute.fromJson(e as Map<String, dynamic>)).toList(),
+        hints: (json['hints'] as List).map((e) => AssistantHint.fromJson(e as Map<String, dynamic>)).toList(),
+        createdAt: DateTime.parse(json['createdAt'] as String).toLocal(),
+      );
+}

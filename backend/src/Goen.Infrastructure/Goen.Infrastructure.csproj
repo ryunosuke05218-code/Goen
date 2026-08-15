@@ -15,6 +15,12 @@
     <PackageReference Include="ZXing.Net" Version="0.16.11" />
   </ItemGroup>
 
+  <!-- IFormFile（F-026資料ファイル添付）・IHttpClientFactory（UrlTextFetcher）等、
+       ASP.NET Core本体の型を参照するためのフレームワーク参照。個別のNuGetパッケージ追加は不要。 -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

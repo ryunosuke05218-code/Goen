@@ -14,7 +14,6 @@ public class PersonRead
     public string? OccupationName { get; set; }
     public string? PrefName { get; set; }
     public string? JobTitle { get; set; }
-    public short Importance { get; set; }
     public string? Summary { get; set; }
     public string? Issues { get; set; }
     public string TagsJson { get; set; } = "[]";

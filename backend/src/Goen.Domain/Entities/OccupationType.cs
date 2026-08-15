@@ -5,6 +5,7 @@ public class OccupationType
 {
     public string OccupationCode { get; set; } = null!;
     public string OccupationName { get; set; } = null!;
+    public string? IndustryCode { get; set; }
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
 }

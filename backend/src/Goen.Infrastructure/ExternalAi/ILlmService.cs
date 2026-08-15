@@ -40,7 +40,12 @@ public interface ILlmService
         IReadOnlyList<PersonContext> candidates,
         CancellationToken cancellationToken = default);
 
-    // AIアシスタント（人脈経路提案・RAGヒント）の自然文回答生成に使用する汎用のテキスト生成メソッド。
+    // AIアシスタント（人脈経路提案・RAGヒント）・紹介文作成（F-026）の自然文回答生成に使用する汎用のテキスト生成メソッド。
     // JSON modeは使わず、systemPromptで出力形式を指示したうえで自由文を受け取る。
-    Task<string> ComposeTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default);
+    // F-026: HPリンクの本文・資料ファイル（画像/PDF）を任意で添付できる（GeneratePersonCardAsyncと同じ添付の扱い）。
+    Task<string> ComposeTextAsync(
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyCollection<AttachmentInput>? attachments = null,
+        CancellationToken cancellationToken = default);
 }

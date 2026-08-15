@@ -32,15 +32,14 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
   late final _companyName = TextEditingController(text: widget.person.companyName);
   late final _department = TextEditingController(text: widget.person.department);
   late final _jobTitle = TextEditingController(text: widget.person.jobTitle);
+  late final _industryName = TextEditingController(text: widget.person.industryName);
+  late final _occupationName = TextEditingController(text: widget.person.occupationName);
   late final _tel = TextEditingController(text: widget.person.tel);
   late final _mobile = TextEditingController(text: widget.person.mobile);
   late final _email = TextEditingController(text: widget.person.email);
   late final _address = TextEditingController(text: widget.person.address);
   late final _note = TextEditingController(text: widget.person.note);
   late final _metPlace = TextEditingController(text: widget.person.metPlace);
-  late String? _occupationCode = widget.person.occupationCode;
-  late int _importance = widget.person.importance;
-  late bool _importanceIsManual = widget.person.importanceIsManual;
   late String _visibility = widget.person.visibility;
   late List<SnsLink> _snsLinks = widget.person.snsLinks;
   bool _isSubmitting = false;
@@ -49,6 +48,7 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
   void dispose() {
     for (final c in [
       _fullName, _fullNameKana, _companyName, _department, _jobTitle,
+      _industryName, _occupationName,
       _tel, _mobile, _email, _address, _note, _metPlace,
     ]) {
       c.dispose();
@@ -69,9 +69,8 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
             companyName: _emptyToNull(_companyName.text),
             department: _emptyToNull(_department.text),
             jobTitle: _emptyToNull(_jobTitle.text),
-            occupationCode: _occupationCode,
-            importance: _importance,
-            importanceIsManual: _importanceIsManual,
+            occupationName: _emptyToNull(_occupationName.text),
+            industryName: _emptyToNull(_industryName.text),
             visibility: _visibility,
             tel: _emptyToNull(_tel.text),
             mobile: _emptyToNull(_mobile.text),
@@ -130,10 +129,9 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
               decoration: const InputDecoration(labelText: '役職', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
-            OccupationDropdown(
-              value: _occupationCode,
-              onChanged: (v) => setState(() => _occupationCode = v),
-            ),
+            IndustryComboBox(controller: _industryName),
+            const SizedBox(height: 12),
+            OccupationComboBox(controller: _occupationName),
             const SizedBox(height: 12),
             TextFormField(
               controller: _tel,
@@ -182,30 +180,6 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
             SnsLinksEditor(
               initialLinks: _snsLinks,
               onChanged: (links) => _snsLinks = links,
-            ),
-            const Divider(height: 32),
-            Text('重要度', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                for (var i = 1; i <= 5; i++)
-                  IconButton(
-                    icon: Icon(i <= _importance ? Icons.star : Icons.star_border, color: Colors.amber),
-                    onPressed: () => setState(() {
-                      _importance = i;
-                      _importanceIsManual = true;
-                    }),
-                  ),
-                const SizedBox(width: 8),
-                Text('$_importance / 5'),
-              ],
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('重要度を手動固定する'),
-              subtitle: const Text('ONにすると、以後のAI自動算出で上書きされなくなります（F-022）'),
-              value: _importanceIsManual,
-              onChanged: (v) => setState(() => _importanceIsManual = v),
             ),
             const Divider(height: 32),
             Text('公開範囲', style: Theme.of(context).textTheme.titleSmall),

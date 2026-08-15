@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Goen.Api.Dtos;
 using Goen.Infrastructure.Rag;
 using Microsoft.AspNetCore.Authorization;
@@ -33,5 +34,21 @@ public class AiAssistantController : ControllerBase
             result.Routes.Select(r => new AssistantRouteResponse(
                 r.Steps.Select(s => new AssistantRouteStepResponse(s.PersonId, s.PersonName, s.RelationTypeFromPrevious)).ToList())).ToList(),
             result.Hints.Select(h => new AssistantHintResponse(h.PersonId, h.PersonName, h.Reason, h.Excerpt)).ToList()));
+    }
+
+    private static readonly JsonSerializerOptions HistoryJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    [HttpGet("history")]
+    public async Task<ActionResult<List<AiAssistantHistoryItemResponse>>> History(CancellationToken ct)
+    {
+        var items = await _assistant.GetHistoryAsync(User.GetUserId(), ct);
+
+        return Ok(items.Select(q => new AiAssistantHistoryItemResponse(
+            q.QueryId,
+            q.Instruction,
+            q.Answer,
+            JsonSerializer.Deserialize<List<AssistantRouteResponse>>(q.RoutesJson, HistoryJsonOptions) ?? new(),
+            JsonSerializer.Deserialize<List<AssistantHintResponse>>(q.HintsJson, HistoryJsonOptions) ?? new(),
+            q.CreatedAt)).ToList());
     }
 }

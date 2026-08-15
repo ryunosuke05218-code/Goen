@@ -3,9 +3,9 @@
 | 項目 | 内容 |
 |---|---|
 | プロジェクト名 | GOEN（HUMAN NETWORK OS／人脈OS） |
-| 文書バージョン | 1.7 |
+| 文書バージョン | 1.11 |
 | 作成日 | 2026/07/20 |
-| 最終更新日 | 2026/08/05 |
+| 最終更新日 | 2026/08/15 |
 | 作成者 | 阿部竜之介 |
 | 対象要件 | 要件定義書 v1.2（5.6 データ要件、6 非機能要件） |
 
@@ -21,6 +21,10 @@
 | 1.5 | 2026/08/03 | F-024（名刺管理アプリ「eight」との連携）がAPI連携ではなくCSVインポート方式に変更されたことを反映し、`import_jobs`の説明にeight由来のCSV移行も対象である旨を明記（7.20節） | 阿部 |
 | 1.6 | 2026/08/04 | 要件定義書v1.7の追加要望を反映（設計のみ、DDL・マイグレーションは未実施）。`persons.occupation_type`（職種、F-006の人脈図階層グルーピング用）を新設し、`persons.source_type`のCHECK許容値に`mutual_registration`（F-028）を追加（7.6節）。`users.allow_mutual_registration`を新設（7.4節）。`ai_person_cards.input_sources`を新設し、HPリンク・資料ファイル等の追加ソースの参照情報を保持できるようにした。あわせて前回世代の要約を踏まえた更新方式を設計メモとして明記（7.12節） | 阿部 |
 | 1.7 | 2026/08/05 | 要件定義書v1.8でのQ-011解消を反映。職種を自由入力ではなくマスタ化することとし、静的マスタ`m_occupation_type`を新設（7.21節）。`persons.occupation_type`（text）を`persons.occupation_code`（`m_occupation_type`へのFK）に変更（7.6節）。`persons_read.occupation_name`（非正規化）を追加（7.16節）。ER図・テーブル一覧・履歴対象外テーブル一覧を更新。DDL・マイグレーションは未実施 | 阿部 |
+| 1.8 | 2026/08/09 | ダッシュボード機能（F-029、S-018）を追加。既存の`persons_read`（業種別/職種別の集計）と`next_actions`（期日の近い順の取得）のみで構成されるため、テーブル・列の追加はなし。5.4節にアクセス経路を追記 | 阿部 |
+| 1.9 | 2026/08/09 | 重要度を廃止。`persons.importance`／`persons.importance_is_manual`／`persons_read.importance`列を削除し（`migrations/0007_drop_importance.sql`）、関連インデックス`ix_persons_read_owner_importance`を`ix_persons_read_owner_last_contact`（`owner_user_id, last_contact_at DESC`）に置き換え。7.6節・7.16節・5.1〜5.3節・8章・9章のサンプルSQLを更新 | 阿部 |
+| 1.10 | 2026/08/09 | 職種追加・業種／職種管理機能（F-030）を追加。`m_occupation_type`に`industry_code`（`m_industry`への任意FK）と`ix_occupation_type_industry`インデックスを新設（`migrations/0008_occupation_industry_link.sql`）。`m_industry`・`m_occupation_type`はいずれも静的マスタのため`h_*`履歴テーブルの列同期は不要。5.1節（`persons_read.industry_name`の導出元を職種経由に変更）・7.21節を更新 | 阿部 |
+| 1.11 | 2026/08/15 | F-034（AI指示・紹介文作成の質問／回答履歴）を追加。`ai_assistant_queries`（AI指示1回ごとの質問・回答・経路・ヒントをJSONBで保存）と`intro_letter_requests`（紹介文作成1回ごとの依頼条件・生成文面を保存、対象人物への`ON DELETE CASCADE`付きFK）を新設（`migrations/0009_ai_assistant_and_intro_letter_history.sql`）。いずれも`briefs`と同じ追記型ログでありUPDATE/DELETEを行わないため`h_*`履歴テーブルは持たない。6章・7.20節を更新 | 阿部 |
 
 ---
 
@@ -108,6 +112,7 @@ erDiagram
     users ||--o{ persons : "担当"
     companies ||--o{ persons : "所属"
     m_industry ||--o{ companies : "業種"
+    m_industry ||--o{ m_occupation_type : "紐づく業種"
     m_occupation_type ||--o{ persons : "職種"
     persons ||--|| person_profiles : "詳細"
     persons ||--|| persons_read : "参照モデル"
@@ -258,11 +263,13 @@ erDiagram
 |---|---|
 | 粒度 | 人物1件＝1行（`person_id` が主キー） |
 | 更新契機 | 元テーブルの更新トリガから同期更新する。ただしAIカルテ生成のような重い処理は非同期キュー経由とする |
-| 保持内容 | 氏名・会社名・業種名・都道府県名・重要度・最終接触日・接点件数・タグ配列・AI要約・次回アクション（内容と期限）・公開範囲 |
+| 保持内容 | 氏名・会社名・業種名・都道府県名・最終接触日・接点件数・タグ配列・AI要約・次回アクション（内容と期限）・公開範囲 |
 | 型 | 単純な項目は列として、タグや次回アクションのような可変長データは `jsonb` として保持する |
 | 再構築 | 原本テーブルから全件再生成するバッチを用意する（不整合発生時のリカバリ手段） |
 
 これにより、人物一覧・検索結果の表示は `persons_read` 単体へのアクセス（結合0回）、カルテ画面は `persons_read` ＋ `contacts`（接点履歴）の2テーブルで完結する。
+
+`industry_name`（業種名）は、`persons.occupation_code` から辿った `m_occupation_type.industry_code` を優先的に使用し、職種が未設定または職種に業種が紐付けられていない場合のみ `companies.industry_code` にフォールバックする（F-030、7.21節）。`companies.industry_code` は会社登録時の入力経路がなく実運用では常にNULLとなるため、業種は事実上「人物が選んだ職種に紐づく業種」として決まる。職種の業種紐付けをマスタ管理画面（S-019）から変更した場合は、その職種を使用中の全人物の `persons_read` を即時再同期する。
 
 ### 5.2 `persons` と `person_profiles` の分割
 
@@ -270,7 +277,7 @@ erDiagram
 
 | テーブル | 保持する項目 | 更新頻度 | 参照頻度 |
 |---|---|---|---|
-| `persons` | 氏名、カナ、会社ID、役職、担当ユーザー、重要度、公開範囲、最終接触日 | 高 | 高 |
+| `persons` | 氏名、カナ、会社ID、役職、担当ユーザー、公開範囲、最終接触日 | 高 | 高 |
 | `person_profiles` | 電話番号、メールアドレス、住所、URL、生年月日、備考（長文） | 低 | 低（詳細表示時のみ） |
 
 理由：PostgreSQLはページ単位（8KB）でデータを読み込むため、行幅が小さいほど1ページに載る行数が増え、一覧取得時のI/Oとキャッシュ効率が向上する。長文の備考やほとんど参照されない連絡先を同一行に持たせると、一覧取得のたびに不要なデータを読み込むことになる。
@@ -279,7 +286,7 @@ erDiagram
 
 グラフ描画は `person_relations` を起点とする探索処理となるため、以下の方針とする。
 
-- 初期表示は「自分から距離1〜2」かつ「重要度★3以上」に限定する（要件のリスクR-007への対応）
+- 初期表示は「自分から距離1〜2」に限定する（要件のリスクR-007への対応）
 - 再帰的な探索が必要な場合は再帰CTE（`WITH RECURSIVE`）を用い、深さの上限を3とする
 - `person_relations` には `(from_person_id, to_person_id)` と `(to_person_id, from_person_id)` の双方向インデックスを張り、どちらの方向からの探索でもインデックスが効くようにする
 - 探索の結果得られた人物IDに対する表示情報は `persons_read` から一括取得する（`WHERE person_id = ANY($1)`）
@@ -293,6 +300,8 @@ erDiagram
 | S-007 人物一覧 | `persons_read` | 0 |
 | S-008 検索 | `rag_chunks` → `persons_read` | 1 |
 | S-009 人脈マップ | `person_relations`（再帰CTE）→ `persons_read` | 1 |
+| S-018 ダッシュボード | `persons_read`（集計）、`next_actions`→`persons_read`（次回アクション） | 1 |
+| S-019 業種・職種の管理 | `m_industry`、`m_occupation_type` | 0 |
 | 詳細表示・編集 | `persons`、`person_profiles` | 1 |
 | 変更履歴表示（管理） | `h_persons` | 0 |
 
@@ -321,6 +330,8 @@ erDiagram
 | 16 | ④ 追記型 | `transcripts` | 文字起こし | 〜1,000,000 | ○ | － |
 | 17 | ④ 追記型 | `ai_person_cards` | AI人物カルテ（世代管理） | 〜1,500,000 | － | － |
 | 18 | ④ 追記型 | `briefs` | 商談前ブリーフ | 〜200,000 | － | － |
+| 18a | ④ 追記型 | `ai_assistant_queries` | AI指示の質問・回答履歴 | 〜1,000,000 | － | － |
+| 18b | ④ 追記型 | `intro_letter_requests` | 紹介文作成の依頼・生成結果履歴 | 〜500,000 | － | － |
 | 19 | ⑤ 参照最適化 | `persons_read` | 人物参照モデル | 〜300,000 | － | － |
 | 20 | ⑥ 検索 | `rag_chunks` | RAGチャンク | 〜5,000,000 | － | － |
 | 21 | ⑥ 検索 | `rag_index_queue` | 埋め込み再生成キュー | 〜10,000 | － | － |
@@ -408,8 +419,6 @@ erDiagram
 | department | text | | 部署 |
 | job_title | text | | 役職（部長・課長等の肩書き） |
 | occupation_code | varchar(10) | FK(`m_occupation_type`) | 職種コード（営業・エンジニア・デザイナー等の職務分類、7.21節）。役職(`job_title`)とは別概念。人脈図（F-006）の階層グルーピングに使用する新設項目。未設定は「職種未設定」として1グループに集約する |
-| importance | smallint | NN, CHECK(1-5) | 重要度（★1〜★5） |
-| importance_is_manual | boolean | NN | 重要度を手動設定したか（trueの場合F-022の自動算出で上書きしない） |
 | visibility | text | NN, CHECK | 公開範囲（`private` / `team` / `org`） |
 | first_met_at | date | | 初回接点日 |
 | met_place | text | | どこで会ったか（例：「〇〇異業種交流会」）。人物登録画面で入力する。RAGチャンク（`source_type='profile'`）にも含め、「去年、京都の交流会で会った人」のような検索の手がかりとする |
@@ -604,7 +613,6 @@ erDiagram
 | occupation_name | text | | 職種名（非正規化。`m_occupation_type`をJOINせず人脈図ツリー（F-006）を描画するために保持） |
 | pref_name | text | | 都道府県名（非正規化） |
 | job_title | text | | 役職 |
-| importance | smallint | NN | 重要度 |
 | summary | text | | AI要約（最新世代） |
 | issues | text | | 課題 |
 | tags | jsonb | NN | タグ配列 |
@@ -615,7 +623,7 @@ erDiagram
 | created_at | timestamptz | | 元の`persons.created_at`を非正規化（F-003の登録順ソート用。結合を避けるため） |
 | refreshed_at | timestamptz | NN | 再構築日時 |
 
-インデックス：`(owner_user_id, importance DESC, last_contact_at DESC)`、`(org_id, visibility)`、`search_text` への全文検索インデックス
+インデックス：`(owner_user_id, last_contact_at DESC)`、`(org_id, visibility)`、`search_text` への全文検索インデックス
 
 ### 7.17 rag_chunks（RAGチャンク）
 
@@ -687,6 +695,8 @@ pgvectorへの読み書きは追加のNuGetパッケージ（`Pgvector.EntityFra
 |---|---|
 | `tags` / `person_tags` | タグと人物の多対多関連。`person_tags` は `(person_id, tag_id)` の複合主キー |
 | `briefs` | 商談前ブリーフ（F-014）。`person_id`、生成日時、要点、質問候補、提案候補、引用元URL配列を保持。追記型 |
+| `ai_assistant_queries` | AI指示（F-025）1回ごとの質問文・回答文・経路（`routes`）・関連人物ヒント（`hints`、いずれもJSONB）を`owner_user_id`単位で保持。人脈図画面のAI指示履歴（F-034）で参照。追記型 |
+| `intro_letter_requests` | 紹介文作成（F-026）1回ごとの対象人物・要件・トーン等の条件・生成文面を`owner_user_id`単位で保持。添付ファイルはファイル名のみ記録（実体は保存しない）。紹介文作成の履歴（F-034）で参照。追記型 |
 | `auth_tokens` | リフレッシュトークン。ハッシュ値・端末情報・有効期限・失効日時を保持 |
 | `ai_api_logs` | 外部AI API呼出ログ。API種別、モデル、トークン数、コスト、応答時間、成否。リスクR-003のコスト監視に使用 |
 | `import_jobs` | CSVインポートジョブ。ファイル名、件数、成功／失敗件数、エラー明細。移行（I-007の現行人脈管理グラフサイト、F-024のeightからのCSV移行）に共通で使用 |
@@ -699,12 +709,13 @@ pgvectorへの読み書きは追加のNuGetパッケージ（`Pgvector.EntityFra
 |---|---|---|---|
 | occupation_code | varchar(10) | PK | 職種コード |
 | occupation_name | text | NN | 職種名（例：営業、エンジニア、デザイナー、経営者、バックオフィス 等） |
+| industry_code | varchar(10) | FK(`m_industry`) | 紐づく業種（任意。F-030の職種追加画面・業種/職種管理画面で設定する。`migrations/0008_occupation_industry_link.sql`で追加） |
 | sort_order | integer | NN, DEFAULT 0 | 表示順 |
 | is_active | boolean | NN, DEFAULT true | 有効フラグ |
 
-`m_industry`と異なり親子階層（`parent_code`）は持たない（フラットな分類とする）。初期データ（具体的な職種項目の洗い出し）は詳細設計時に確定する（基本設計書B-007）。
+`m_industry`と異なり親子階層（`parent_code`）は持たない（フラットな分類とする）。初期データ（具体的な職種項目の洗い出し）は詳細設計時に確定する（基本設計書B-007）。既存の職種に対して`industry_code`をあとから設定・変更した場合、その職種を使用中の人物の`persons_read.industry_name`は即時再同期される（基本設計書7.6節）。
 
-`persons`テーブルは`job_title`（役職・自由入力）とは別に`occupation_code`（職種・本マスタのFK）を持つ（7.6節）。
+`persons`テーブルは`job_title`（役職・自由入力）とは別に`occupation_code`（職種・本マスタのFK）を持つ（7.6節）。人脈図（F-006）・ダッシュボード（F-029）の「業種」は、`persons.occupation_code`→`m_occupation_type.industry_code`→`m_industry.industry_name`の経路を優先して用いる（5.1節）。
 
 ---
 
@@ -713,7 +724,7 @@ pgvectorへの読み書きは追加のNuGetパッケージ（`Pgvector.EntityFra
 | # | 方針 | 内容 |
 |---|---|---|
 | 1 | 部分インデックスの活用 | `WHERE status = 'open'`、`WHERE is_latest` のように、参照対象が限定される条件は部分インデックスとする。インデックスサイズを削減し更新コストを抑える |
-| 2 | カバリングインデックス | 一覧取得で頻出する `(owner_user_id, last_contact_at DESC) INCLUDE (full_name, importance)` のように、テーブル本体へのアクセスを不要にする |
+| 2 | カバリングインデックス | 一覧取得で頻出する `(owner_user_id, last_contact_at DESC) INCLUDE (full_name, company_name)` のように、テーブル本体へのアクセスを不要にする |
 | 3 | 履歴テーブルは最小限 | `h_*` には主キーと `(元ID, changed_at DESC)` のみを張る。書き込み性能を優先する |
 | 4 | 配列カラムはGIN | `target_industry_codes` などの配列は GIN インデックスとし、`&&`（重なり）演算子で絞り込む |
 | 5 | 外部キーには必ずインデックス | 親レコード削除時のカスケード処理でテーブル全体走査が発生することを防ぐ |
@@ -793,12 +804,11 @@ LIMIT $4;
 ### 9.2 接触履歴からの検索（「半年以上連絡していない見込み客」）
 
 ```sql
-SELECT person_id, full_name, company_name, importance, last_contact_at
+SELECT person_id, full_name, company_name, last_contact_at
 FROM persons_read
 WHERE owner_user_id = $1
-  AND importance >= 4
   AND (last_contact_at IS NULL OR last_contact_at < now() - interval '6 months')
-ORDER BY importance DESC, last_contact_at NULLS FIRST
+ORDER BY last_contact_at NULLS FIRST
 LIMIT 50;
 ```
 
@@ -807,10 +817,10 @@ LIMIT 50;
 ### 9.3 変更履歴の表示（管理機能）
 
 ```sql
-SELECT 'current' AS state, version, full_name, importance, updated_at AS at, updated_by AS by
+SELECT 'current' AS state, version, full_name, updated_at AS at, updated_by AS by
 FROM persons WHERE person_id = $1
 UNION ALL
-SELECT 'history', version, full_name, importance, changed_at, changed_by
+SELECT 'history', version, full_name, changed_at, changed_by
 FROM h_persons WHERE person_id = $1
 ORDER BY at DESC;
 ```

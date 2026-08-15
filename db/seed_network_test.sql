@@ -11,10 +11,10 @@
 --
 -- 生成されるグラフ構造（起点 鈴木一郎 から距離2まで）:
 --
---   鈴木一郎(root, ★5, アルファ商事)
---     └─ referrer ─ 田中花子(★4, ベータ工務店)
---                      ├─ referrer ─ 伊藤直樹(★3, ベータ工務店)
---                      └─ community ─ 渡辺さくら(★2)
+--   鈴木一郎(root, アルファ商事)
+--     └─ referrer ─ 田中花子(ベータ工務店)
+--                      ├─ referrer ─ 伊藤直樹(ベータ工務店)
+--                      └─ community ─ 渡辺さくら
 --
 --   （佐藤健二・山本大輔・高橋美咲・中村洋子・小林拓也は鈴木一郎/高橋美咲と同じ会社・取引関係に
 --    あるが、上記の理由によりエッジは張らず、それぞれの人物カルテのメモにのみ記載する）
@@ -37,7 +37,7 @@
 -- RAG検索シナリオ（既存人物のプロフィールメモを更新 + 新規人物・接点メモを追加）:
 --   ・高橋美咲（既存）: プロフィールメモに税務相談・他士業紹介の実績を追記
 --     質問例:「税理士を紹介してくれそうな人はいますか？」
---   ・伊藤直樹（既存）: プロフィールメモに映像制作業界との人脈を追記（importanceも3→4に更新）
+--   ・伊藤直樹（既存）: プロフィールメモに映像制作業界との人脈を追記
 --     質問例:「動画制作会社を探しているのですが、誰か知っていますか？」
 --   ・佐々木優子（新規, dev担当）: 昨年京都の交流会で会った、という接点メモ
 --     質問例:「去年、京都の交流会で会った人を思い出したい」
@@ -62,51 +62,51 @@ ON CONFLICT (company_id) DO NOTHING;
 -- ---------------------------------------------------------------------
 INSERT INTO persons (
   person_id, org_id, owner_user_id, company_id, full_name, full_name_kana, job_title,
-  importance, visibility, source_type, first_met_at, last_contact_at, created_by, updated_by
+  visibility, source_type, first_met_at, last_contact_at, created_by, updated_by
 ) VALUES
   ('41000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000001', '鈴木 一郎', 'スズキ イチロウ', '営業部長',
-   5, 'private', 'manual', current_date - 400, now() - interval '3 days',
+   'private', 'manual', current_date - 400, now() - interval '3 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000002', '田中 花子', 'タナカ ハナコ', '代表取締役',
-   4, 'private', 'manual', current_date - 300, now() - interval '10 days',
+   'private', 'manual', current_date - 300, now() - interval '10 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000001', '佐藤 健二', 'サトウ ケンジ', '課長',
-   3, 'private', 'manual', current_date - 250, now() - interval '20 days',
+   'private', 'manual', current_date - 250, now() - interval '20 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000003', '高橋 美咲', 'タカハシ ミサキ', '税理士',
-   4, 'private', 'manual', current_date - 180, now() - interval '5 days',
+   'private', 'manual', current_date - 180, now() - interval '5 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000002', '伊藤 直樹', 'イトウ ナオキ', '現場監督',
-   3, 'private', 'manual', current_date - 120, now() - interval '30 days',
+   'private', 'manual', current_date - 120, now() - interval '30 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    NULL, '渡辺 さくら', 'ワタナベ サクラ', NULL,
-   2, 'private', 'manual', current_date - 90, now() - interval '60 days',
+   'private', 'manual', current_date - 90, now() - interval '60 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000001', '山本 大輔', 'ヤマモト ダイスケ', '主任',
-   3, 'private', 'manual', current_date - 200, now() - interval '15 days',
+   'private', 'manual', current_date - 200, now() - interval '15 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    '40000000-0000-0000-0000-000000000003', '中村 洋子', 'ナカムラ ヨウコ', 'パートナー税理士',
-   4, 'private', 'manual', current_date - 150, now() - interval '8 days',
+   'private', 'manual', current_date - 150, now() - interval '8 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    NULL, '小林 拓也', 'コバヤシ タクヤ', NULL,
-   2, 'private', 'manual', current_date - 60, now() - interval '45 days',
+   'private', 'manual', current_date - 60, now() - interval '45 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101')
 ON CONFLICT (person_id) DO NOTHING;
 
@@ -115,12 +115,12 @@ ON CONFLICT (person_id) DO NOTHING;
 -- ---------------------------------------------------------------------
 INSERT INTO persons_read (
   person_id, org_id, owner_user_id, visibility, full_name, full_name_kana,
-  company_name, industry_name, pref_name, job_title, importance,
+  company_name, industry_name, pref_name, job_title,
   summary, issues, tags, last_contact_at, contact_count, open_action, search_text, refreshed_at
 )
 SELECT
   p.person_id, p.org_id, p.owner_user_id, p.visibility, p.full_name, p.full_name_kana,
-  c.company_name, mi.industry_name, mp.pref_name, p.job_title, p.importance,
+  c.company_name, mi.industry_name, mp.pref_name, p.job_title,
   NULL, NULL, '[]'::jsonb, p.last_contact_at, 0, NULL,
   p.full_name || ' ' || COALESCE(p.full_name_kana, '') || ' ' || COALESCE(c.company_name, ''),
   now()
@@ -138,7 +138,6 @@ WHERE p.person_id IN (
 ON CONFLICT (person_id) DO UPDATE SET
   full_name = EXCLUDED.full_name,
   company_name = EXCLUDED.company_name,
-  importance = EXCLUDED.importance,
   refreshed_at = EXCLUDED.refreshed_at;
 
 -- ---------------------------------------------------------------------
@@ -222,26 +221,26 @@ ON CONFLICT (company_id) DO NOTHING;
 -- ---------------------------------------------------------------------
 INSERT INTO persons (
   person_id, org_id, owner_user_id, company_id, full_name, full_name_kana, job_title,
-  importance, visibility, source_type, first_met_at, last_contact_at, created_by, updated_by
+  visibility, source_type, first_met_at, last_contact_at, created_by, updated_by
 ) VALUES
   ('41000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000102',
    NULL, '高木 ゆり', 'タカギ ユリ', 'フリーランスPR',
-   3, 'private', 'manual', current_date - 200, now() - interval '25 days',
+   'private', 'manual', current_date - 200, now() - interval '25 days',
    '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000102'),
 
   ('41000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000102',
    '40000000-0000-0000-0000-000000000004', '加藤 麻衣', 'カトウ マイ', 'プロデューサー',
-   3, 'private', 'manual', current_date - 100, now() - interval '18 days',
+   'private', 'manual', current_date - 100, now() - interval '18 days',
    '00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000102'),
 
   ('41000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    NULL, '佐々木 優子', 'ササキ ユウコ', 'カフェ開業準備中',
-   3, 'private', 'manual', current_date - 400, now() - interval '400 days',
+   'private', 'manual', current_date - 400, now() - interval '400 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101'),
 
   ('41000000-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000101',
    NULL, '木村 健太', 'キムラ ケンタ', NULL,
-   3, 'private', 'manual', current_date - 500, now() - interval '20 days',
+   'private', 'manual', current_date - 500, now() - interval '20 days',
    '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000101')
 ON CONFLICT (person_id) DO NOTHING;
 
@@ -250,12 +249,12 @@ ON CONFLICT (person_id) DO NOTHING;
 -- ---------------------------------------------------------------------
 INSERT INTO persons_read (
   person_id, org_id, owner_user_id, visibility, full_name, full_name_kana,
-  company_name, industry_name, pref_name, job_title, importance,
+  company_name, industry_name, pref_name, job_title,
   summary, issues, tags, last_contact_at, contact_count, open_action, search_text, refreshed_at
 )
 SELECT
   p.person_id, p.org_id, p.owner_user_id, p.visibility, p.full_name, p.full_name_kana,
-  c.company_name, mi.industry_name, mp.pref_name, p.job_title, p.importance,
+  c.company_name, mi.industry_name, mp.pref_name, p.job_title,
   NULL, NULL, '[]'::jsonb, p.last_contact_at, 0, NULL,
   p.full_name || ' ' || COALESCE(p.full_name_kana, '') || ' ' || COALESCE(c.company_name, ''),
   now()
@@ -270,7 +269,6 @@ WHERE p.person_id IN (
 ON CONFLICT (person_id) DO UPDATE SET
   full_name = EXCLUDED.full_name,
   company_name = EXCLUDED.company_name,
-  importance = EXCLUDED.importance,
   refreshed_at = EXCLUDED.refreshed_at;
 
 -- ---------------------------------------------------------------------
@@ -294,13 +292,7 @@ ON CONFLICT (from_person_id, to_person_id, relation_type) DO NOTHING;
 -- 既存人物データの更新（RAG検索用の補足情報を追記）
 -- ---------------------------------------------------------------------
 
--- 伊藤直樹: 重要度を3→4に更新し、映像制作業界との人脈をプロフィールメモに追記
-UPDATE persons SET importance = 4, updated_by = '00000000-0000-0000-0000-000000000101'
-WHERE person_id = '41000000-0000-0000-0000-000000000005';
-
-UPDATE persons_read SET importance = 4, refreshed_at = now()
-WHERE person_id = '41000000-0000-0000-0000-000000000005';
-
+-- 伊藤直樹: 映像制作業界との人脈をプロフィールメモに追記
 INSERT INTO person_profiles (person_id, note, created_by, updated_by) VALUES
   ('41000000-0000-0000-0000-000000000004',
    '中小企業の税務相談を数多く手がけており、顧問先への他士業紹介にも積極的。顧問先には鈴木一郎さん（アルファ商事）、顧客には小林拓也さんがいる。同じ事務所に中村洋子さん（パートナー税理士）が在籍。',

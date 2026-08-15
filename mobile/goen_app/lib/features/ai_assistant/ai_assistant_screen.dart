@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../home/main_bottom_nav_bar.dart';
+import '../intro_letter/intro_letter_screen.dart';
 import '../persons/relation_type.dart';
+import 'ai_assistant_history_screen.dart';
 import 'ai_assistant_repository.dart';
+import 'ai_result_diagram.dart';
 import 'models/assistant_models.dart';
 
 const _examplePrompts = [
@@ -58,7 +62,16 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AIに相談する')),
+      appBar: AppBar(
+        title: const Text('AIに相談する'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: '過去の相談履歴',
+            onPressed: () => context.push('/network-map/ai-assistant/history'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -109,20 +122,35 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
               ),
             ),
           if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          if (_result case final result?) _ResultView(result: result),
+          if (_result case final result?) AssistantResultView(key: ObjectKey(result), result: result),
         ],
       ),
+      bottomNavigationBar: const MainBottomNavBar(selectedIndex: 3),
     );
   }
 }
 
-class _ResultView extends StatelessWidget {
-  const _ResultView({required this.result});
+enum ResultDisplayMode { list, diagram }
+
+/// AIの回答・経路・関連人物を表示するビュー。「リスト／図で見る」を切り替えられる。
+/// 現在の相談結果（[AiAssistantScreen]）と、過去の履歴詳細（[AiAssistantHistoryDetailScreen]）の両方から共用する。
+class AssistantResultView extends StatefulWidget {
+  const AssistantResultView({super.key, required this.result});
 
   final AssistantResult result;
 
   @override
+  State<AssistantResultView> createState() => AssistantResultViewState();
+}
+
+class AssistantResultViewState extends State<AssistantResultView> {
+  var _mode = ResultDisplayMode.list;
+
+  @override
   Widget build(BuildContext context) {
+    final result = widget.result;
+    final hasResults = result.routes.isNotEmpty || result.hints.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -146,23 +174,70 @@ class _ResultView extends StatelessWidget {
             ),
           ),
         ),
-        if (result.routes.isNotEmpty) ...[
+        if (hasResults) ...[
           const SizedBox(height: 16),
+          Center(
+            child: SegmentedButton<ResultDisplayMode>(
+              segments: const [
+                ButtonSegment(value: ResultDisplayMode.list, label: Text('リスト'), icon: Icon(Icons.view_list_outlined)),
+                ButtonSegment(value: ResultDisplayMode.diagram, label: Text('図で見る'), icon: Icon(Icons.account_tree_outlined)),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (selected) => setState(() => _mode = selected.first),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_mode == ResultDisplayMode.list) _buildList(context, result) else _buildDiagram(context, result),
+        ] else ...[
+          const SizedBox(height: 16),
+          const Text('具体的な経路・関連人物は見つかりませんでした。上の回答文を参考にしてください。',
+              style: TextStyle(color: Colors.grey)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildList(BuildContext context, AssistantResult result) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (result.routes.isNotEmpty) ...[
           Text('おすすめの経路', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           for (final route in result.routes) _RouteChain(route: route),
         ],
         if (result.hints.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          if (result.routes.isNotEmpty) const SizedBox(height: 16),
           Text('関連しそうな人物', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
           for (final hint in result.hints) _HintTile(hint: hint),
         ],
-        if (result.routes.isEmpty && result.hints.isEmpty) ...[
-          const SizedBox(height: 16),
-          const Text('具体的な経路・関連人物は見つかりませんでした。上の回答文を参考にしてください。',
-              style: TextStyle(color: Colors.grey)),
-        ],
+      ],
+    );
+  }
+
+  Widget _buildDiagram(BuildContext context, AssistantResult result) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          '実線＝おすすめの経路　点線＝関連しそうな人物（タップで人物カルテへ）',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 420,
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).dividerColor),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: AiResultDiagram(
+            routes: result.routes,
+            hints: result.hints,
+            onPersonTap: (personId) => context.push('/persons/$personId'),
+          ),
+        ),
       ],
     );
   }
@@ -222,6 +297,9 @@ class _HintTile extends StatelessWidget {
 
   final AssistantHint hint;
 
+  // F-031: AI指示の提案理由・抜粋を、紹介文作成画面の「要件」欄の下書きとして引き継ぐ
+  String get _requirementDraft => 'AI指示での相談を踏まえて連絡したい。\n提案理由: ${hint.reason}\n${hint.excerpt}';
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -234,6 +312,27 @@ class _HintTile extends StatelessWidget {
             Text(hint.reason, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12)),
             const SizedBox(height: 2),
             Text(hint.excerpt, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.edit_note, size: 16),
+                label: const Text('この人への紹介文を作成', style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () => context.push(
+                  '/intro-letter',
+                  extra: IntroLetterPrefill(
+                    personId: hint.personId,
+                    personName: hint.personName,
+                    requirement: _requirementDraft,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
         isThreeLine: true,

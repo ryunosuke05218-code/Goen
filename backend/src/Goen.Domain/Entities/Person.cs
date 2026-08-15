@@ -11,8 +11,6 @@ public class Person
     public string? Department { get; set; }
     public string? JobTitle { get; set; }
     public string? OccupationCode { get; set; }
-    public short Importance { get; set; } = 3; // 1-5
-    public bool ImportanceIsManual { get; set; }
     public string Visibility { get; set; } = "private"; // private / team / org
     public DateOnly? FirstMetAt { get; set; }
     public string? MetPlace { get; set; }

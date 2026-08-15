@@ -9,7 +9,6 @@ public record PersonListItem(
     string? FullNameKana,
     string? CompanyName,
     string? JobTitle,
-    short Importance,
     string? Summary,
     DateTimeOffset? LastContactAt,
     int ContactCount);
@@ -25,10 +24,9 @@ public record PersonDetail(
     string? JobTitle,
     string? OccupationCode,
     string? OccupationName,
+    string? IndustryName,
     Guid? CompanyId,
     string? CompanyName,
-    short Importance,
-    bool ImportanceIsManual,
     string Visibility,
     DateOnly? FirstMetAt,
     string? MetPlace,
@@ -45,14 +43,19 @@ public record PersonDetail(
     string? AiIssues,
     string? AiHobby,
     Guid? IntroducerPersonId,
-    string? IntroducerPersonName);
+    string? IntroducerPersonName,
+    // F-032: AI要約の参照元表示。生成時に参照したHPリンク・資料ファイル・接点メモ件数
+    IReadOnlyList<string> AiSummarySourceUrls,
+    IReadOnlyList<string> AiSummarySourceFiles,
+    int AiSummaryContactCount);
 
 public record CreatePersonRequest(
     string FullName,
     string? FullNameKana,
     string? Department,
     string? JobTitle,
-    string? OccupationCode,
+    string? OccupationName,
+    string? IndustryName,
     string? CompanyName,
     string? Tel,
     string? Mobile,
@@ -69,10 +72,9 @@ public record UpdatePersonRequest(
     string? FullNameKana,
     string? Department,
     string? JobTitle,
-    string? OccupationCode,
+    string? OccupationName,
+    string? IndustryName,
     string? CompanyName,
-    short Importance,
-    bool ImportanceIsManual,
     string Visibility,
     string? Tel,
     string? Mobile,
@@ -141,6 +143,3 @@ public record ContactItem(
 public record VoiceMemoResponse(string TranscriptText, decimal Confidence);
 
 public record GenerateCardResponse(string Summary, string? Business, string? Issues, string? Hobby, int Generation);
-
-// 職種マスタ（Q-011解消。F-006の人脈図階層グルーピング・人物編集画面の選択肢に使用）
-public record OccupationTypeItem(string OccupationCode, string OccupationName);

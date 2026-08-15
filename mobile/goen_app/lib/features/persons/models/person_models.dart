@@ -20,7 +20,6 @@ class PersonListItem {
     this.fullNameKana,
     this.companyName,
     this.jobTitle,
-    required this.importance,
     this.summary,
     this.lastContactAt,
     required this.contactCount,
@@ -31,7 +30,6 @@ class PersonListItem {
   final String? fullNameKana;
   final String? companyName;
   final String? jobTitle;
-  final int importance;
   final String? summary;
   final DateTime? lastContactAt;
   final int contactCount;
@@ -42,7 +40,6 @@ class PersonListItem {
         fullNameKana: json['fullNameKana'] as String?,
         companyName: json['companyName'] as String?,
         jobTitle: json['jobTitle'] as String?,
-        importance: json['importance'] as int,
         summary: json['summary'] as String?,
         lastContactAt: json['lastContactAt'] == null ? null : DateTime.parse(json['lastContactAt'] as String),
         contactCount: json['contactCount'] as int,
@@ -64,7 +61,7 @@ class PersonListResponse {
 
 /// F-003: 人物一覧のソート順
 enum PersonSortOrder {
-  importance('', '重要度順'),
+  lastContact('', '最終接触が新しい順'),
   registeredDesc('registered_desc', '登録が新しい順'),
   registeredAsc('registered_asc', '登録が古い順'),
   nameAsc('name_asc', 'あいうえお順');
@@ -74,16 +71,44 @@ enum PersonSortOrder {
   final String label;
 }
 
-/// 職種マスタ（Q-011解消）。人脈図の階層グルーピング・人物編集画面の選択肢に使用
+/// 業種マスタ（F-030の職種追加画面・業種/職種管理画面で使用）
+class IndustryItem {
+  IndustryItem({required this.industryCode, required this.industryName, required this.isActive});
+
+  final String industryCode;
+  final String industryName;
+  final bool isActive;
+
+  factory IndustryItem.fromJson(Map<String, dynamic> json) => IndustryItem(
+        industryCode: json['industryCode'] as String,
+        industryName: json['industryName'] as String,
+        isActive: json['isActive'] as bool,
+      );
+}
+
+/// 職種マスタ（Q-011解消）。人脈図の階層グルーピング・人物編集画面の選択肢に使用。
+/// F-030: 職種追加画面で業種も選択/新規作成できるようindustryCode/industryNameを持つ
 class OccupationTypeItem {
-  OccupationTypeItem({required this.occupationCode, required this.occupationName});
+  OccupationTypeItem({
+    required this.occupationCode,
+    required this.occupationName,
+    this.industryCode,
+    this.industryName,
+    required this.isActive,
+  });
 
   final String occupationCode;
   final String occupationName;
+  final String? industryCode;
+  final String? industryName;
+  final bool isActive;
 
   factory OccupationTypeItem.fromJson(Map<String, dynamic> json) => OccupationTypeItem(
         occupationCode: json['occupationCode'] as String,
         occupationName: json['occupationName'] as String,
+        industryCode: json['industryCode'] as String?,
+        industryName: json['industryName'] as String?,
+        isActive: json['isActive'] as bool,
       );
 }
 
@@ -96,9 +121,8 @@ class PersonDetail {
     this.jobTitle,
     this.occupationCode,
     this.occupationName,
+    this.industryName,
     this.companyName,
-    required this.importance,
-    required this.importanceIsManual,
     required this.visibility,
     this.tel,
     this.mobile,
@@ -113,6 +137,9 @@ class PersonDetail {
     this.aiHobby,
     this.introducerPersonId,
     this.introducerPersonName,
+    this.aiSummarySourceUrls = const [],
+    this.aiSummarySourceFiles = const [],
+    this.aiSummaryContactCount = 0,
   });
 
   final String personId;
@@ -122,9 +149,8 @@ class PersonDetail {
   final String? jobTitle;
   final String? occupationCode;
   final String? occupationName;
+  final String? industryName;
   final String? companyName;
-  final int importance;
-  final bool importanceIsManual;
   final String visibility;
   final String? tel;
   final String? mobile;
@@ -139,6 +165,10 @@ class PersonDetail {
   final String? aiHobby;
   final String? introducerPersonId;
   final String? introducerPersonName;
+  // F-032: AI要約の参照元表示
+  final List<String> aiSummarySourceUrls;
+  final List<String> aiSummarySourceFiles;
+  final int aiSummaryContactCount;
 
   factory PersonDetail.fromJson(Map<String, dynamic> json) => PersonDetail(
         personId: json['personId'] as String,
@@ -148,9 +178,8 @@ class PersonDetail {
         jobTitle: json['jobTitle'] as String?,
         occupationCode: json['occupationCode'] as String?,
         occupationName: json['occupationName'] as String?,
+        industryName: json['industryName'] as String?,
         companyName: json['companyName'] as String?,
-        importance: json['importance'] as int,
-        importanceIsManual: json['importanceIsManual'] as bool,
         visibility: json['visibility'] as String,
         tel: json['tel'] as String?,
         mobile: json['mobile'] as String?,
@@ -167,6 +196,9 @@ class PersonDetail {
         aiHobby: json['aiHobby'] as String?,
         introducerPersonId: json['introducerPersonId'] as String?,
         introducerPersonName: json['introducerPersonName'] as String?,
+        aiSummarySourceUrls: (json['aiSummarySourceUrls'] as List? ?? []).cast<String>(),
+        aiSummarySourceFiles: (json['aiSummarySourceFiles'] as List? ?? []).cast<String>(),
+        aiSummaryContactCount: json['aiSummaryContactCount'] as int? ?? 0,
       );
 }
 
@@ -305,7 +337,6 @@ class NetworkNode {
     this.companyName,
     this.industryName,
     this.occupationName,
-    required this.importance,
     required this.depth,
     this.isSelf = false,
   });
@@ -315,7 +346,6 @@ class NetworkNode {
   final String? companyName;
   final String? industryName;
   final String? occupationName;
-  final int importance;
   final int depth;
   final bool isSelf;
 
@@ -325,7 +355,6 @@ class NetworkNode {
         companyName: json['companyName'] as String?,
         industryName: json['industryName'] as String?,
         occupationName: json['occupationName'] as String?,
-        importance: json['importance'] as int,
         depth: json['depth'] as int,
         isSelf: json['isSelf'] as bool? ?? false,
       );

@@ -21,7 +21,6 @@ public record NetworkNodeResponse(
     string? CompanyName,
     string? IndustryName,
     string? OccupationName,
-    int Importance,
     int Depth,
     bool IsSelf);
 

@@ -58,13 +58,15 @@ builder.Services.AddMemoryCache(); // F-001: ログイン失敗回数のロッ�
 builder.Services.AddSingleton<Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<PersonReadSyncService>();
+builder.Services.AddScoped<MasterDataService>();
 builder.Services.AddScoped<NetworkGraphService>();
 
 // 音声認識は外部サービス未選定（要件Q-004）のためダミー実装を登録する。
 builder.Services.AddScoped<ISpeechToTextService, MockSpeechToTextService>();
 
-// F-010: AIカルテ生成時のHPリンク取得用。AIプロバイダがmockでもIHttpClientFactoryを使えるよう常に登録する。
+// F-010/F-026: AIカルテ生成・紹介文作成時のHPリンク取得用。AIプロバイダがmockでもIHttpClientFactoryを使えるよう常に登録する。
 builder.Services.AddHttpClient();
+builder.Services.AddScoped<UrlTextFetcher>();
 
 // F-007 名刺画像のQRコード（SNSリンク等）読み取り。AI不使用の決定的処理のため常に同じ実装を使う。
 builder.Services.AddSingleton<IQrCodeReader, ZXingQrCodeReader>();

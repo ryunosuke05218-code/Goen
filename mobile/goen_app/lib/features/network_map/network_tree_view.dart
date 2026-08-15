@@ -44,7 +44,7 @@ List<TreeGroupNode> buildIndustryTree(NetworkGraph graph) {
                                 key: '${entry.key}|${occEntry.key}|${companyEntry.key}',
                                 label: companyEntry.key,
                                 children: List<NetworkNode>.of(companyEntry.value)
-                                  ..sort((a, b) => b.importance.compareTo(a.importance)),
+                                  ..sort((a, b) => a.fullName.compareTo(b.fullName)),
                               ))
                           .toList(),
                     ))
@@ -102,7 +102,6 @@ class _LayoutNode {
     required this.color,
     required this.isPerson,
     this.personId,
-    this.importance,
     this.count,
     this.isCollapsed = false,
     this.isCollapsible = false,
@@ -116,7 +115,6 @@ class _LayoutNode {
   final Color color;
   final bool isPerson;
   final String? personId;
-  final int? importance;
   final int? count;
   final bool isCollapsed;
   final bool isCollapsible;
@@ -234,7 +232,6 @@ class _HorizontalLayout {
         color: color,
         isPerson: true,
         personId: node.personId,
-        importance: node.importance,
       ));
       return y;
     }
@@ -291,7 +288,30 @@ class NetworkTreeView extends StatefulWidget {
 }
 
 class _NetworkTreeViewState extends State<NetworkTreeView> {
-  final Set<String> _collapsed = {};
+  late final Set<String> _collapsed = _allGroupKeys(buildIndustryTree(widget.graph));
+  final TransformationController _transformController = TransformationController();
+  bool _initialCentered = false;
+
+  static Set<String> _allGroupKeys(List<TreeGroupNode> groups) {
+    final keys = <String>{};
+    void visit(TreeGroupNode group) {
+      keys.add(group.key);
+      for (final child in group.children) {
+        if (child is TreeGroupNode) visit(child);
+      }
+    }
+
+    for (final group in groups) {
+      visit(group);
+    }
+    return keys;
+  }
+
+  @override
+  void dispose() {
+    _transformController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -309,25 +329,40 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
     final layout = _HorizontalLayout(groups: groups, collapsed: _collapsed);
     final center = Offset(layout.width / 2, layout.height / 2);
 
-    return InteractiveViewer(
-      minScale: 0.25,
-      maxScale: 3,
-      boundaryMargin: const EdgeInsets.all(200),
-      constrained: false,
-      child: SizedBox(
-        width: layout.width,
-        height: layout.height,
-        child: Stack(
-          children: [
-            CustomPaint(
-              size: Size(layout.width, layout.height),
-              painter: _EdgePainter(structuralEdges: layout.edges, center: center),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!_initialCentered && constraints.maxWidth.isFinite && constraints.maxHeight.isFinite) {
+          _initialCentered = true;
+          final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _transformController.value = Matrix4.identity()
+              ..translateByDouble(viewportSize.width / 2 - center.dx, viewportSize.height / 2 - center.dy, 0, 1);
+          });
+        }
+
+        return InteractiveViewer(
+          transformationController: _transformController,
+          minScale: 0.25,
+          maxScale: 3,
+          boundaryMargin: const EdgeInsets.all(200),
+          constrained: false,
+          child: SizedBox(
+            width: layout.width,
+            height: layout.height,
+            child: Stack(
+              children: [
+                CustomPaint(
+                  size: Size(layout.width, layout.height),
+                  painter: _EdgePainter(structuralEdges: layout.edges, center: center),
+                ),
+                _buildSelfNode(center),
+                for (final node in layout.nodes) _buildNode(node, center),
+              ],
             ),
-            _buildSelfNode(center),
-            for (final node in layout.nodes) _buildNode(node, center),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -410,10 +445,6 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
                       decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(8)),
                       child: Text('${node.count}', style: TextStyle(color: textColor, fontSize: 10)),
                     ),
-                  ],
-                  if (node.isPerson) ...[
-                    const SizedBox(width: 4),
-                    Text('★${node.importance}', style: const TextStyle(fontSize: 10, color: Colors.amber)),
                   ],
                 ],
               ),

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/biometric_settings.dart';
 import '../../core/display_settings.dart';
 import '../../core/providers.dart';
+import '../home/main_bottom_nav_bar.dart';
 import '../persons/person_repository.dart';
 
 final userSettingsProvider = FutureProvider.autoDispose((ref) async {
@@ -153,6 +155,18 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const Divider(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('マスタ管理', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.category_outlined),
+            title: const Text('業種・職種の管理'),
+            subtitle: const Text('人脈図（人脈マップ）の業種＞職種グルーピングに使う項目を編集・追加できます'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/masters/manage'),
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('ログアウト'),
@@ -160,6 +174,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+      bottomNavigationBar: const MainBottomNavBar(selectedIndex: 0),
     );
   }
 }

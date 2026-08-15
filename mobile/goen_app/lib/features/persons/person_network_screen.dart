@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../home/main_bottom_nav_bar.dart';
 import '../network_map/graph_view.dart';
 import '../network_map/network_tree_view.dart';
 import 'models/person_models.dart';
@@ -85,6 +86,7 @@ class _PersonNetworkScreenState extends ConsumerState<PersonNetworkScreen> {
           );
         },
       ),
+      bottomNavigationBar: const MainBottomNavBar(selectedIndex: 1),
     );
   }
 }

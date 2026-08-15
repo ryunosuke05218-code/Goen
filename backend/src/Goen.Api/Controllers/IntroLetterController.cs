@@ -18,10 +18,20 @@ public class IntroLetterController : ControllerBase
         _service = service;
     }
 
+    // 資料ファイル添付（F-026拡張）に対応するためmultipart/form-dataで受け取る（PersonsController.GenerateCardと同じ方式）
     [HttpPost("generate")]
-    public async Task<ActionResult<GenerateIntroLetterResponse>> Generate(GenerateIntroLetterRequest request, CancellationToken ct)
+    [RequestSizeLimit(10_000_000)]
+    public async Task<ActionResult<GenerateIntroLetterResponse>> Generate(
+        [FromForm] Guid targetPersonId,
+        [FromForm] string requirement,
+        [FromForm] string? tone,
+        [FromForm] string? lengthHint,
+        [FromForm] string? additionalNotes,
+        [FromForm] string? hpUrl,
+        IFormFile? file,
+        CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Requirement))
+        if (string.IsNullOrWhiteSpace(requirement))
         {
             return BadRequest(new { message = "要件を入力してください。" });
         }
@@ -29,12 +39,31 @@ public class IntroLetterController : ControllerBase
         try
         {
             var message = await _service.GenerateAsync(
-                request.TargetPersonId, User.GetOrgId(), request.Requirement, request.Tone, request.LengthHint, request.AdditionalNotes, ct);
+                targetPersonId, User.GetOrgId(), User.GetUserId(), requirement, tone, lengthHint, additionalNotes, hpUrl, file, ct);
             return Ok(new GenerateIntroLetterResponse(message));
         }
         catch (InvalidOperationException ex)
         {
             return NotFound(new { message = ex.Message });
         }
+    }
+
+    [HttpGet("history")]
+    public async Task<ActionResult<List<IntroLetterHistoryItemResponse>>> History(CancellationToken ct)
+    {
+        var items = await _service.GetHistoryAsync(User.GetUserId(), ct);
+
+        return Ok(items.Select(r => new IntroLetterHistoryItemResponse(
+            r.RequestId,
+            r.TargetPersonId,
+            r.TargetPerson.FullName,
+            r.Requirement,
+            r.Tone,
+            r.LengthHint,
+            r.AdditionalNotes,
+            r.HpUrl,
+            r.AttachedFileName,
+            r.GeneratedMessage,
+            r.CreatedAt)).ToList());
     }
 }

@@ -15,7 +15,7 @@ class PersonRepository {
   final Dio _dio;
 
   // F-003: sortでソート順を切り替えられる。総登録人数（totalCount）も併せて返る。
-  Future<PersonListResponse> list({String? query, PersonSortOrder sort = PersonSortOrder.importance}) async {
+  Future<PersonListResponse> list({String? query, PersonSortOrder sort = PersonSortOrder.lastContact}) async {
     final response = await _dio.get('/api/persons', queryParameters: {
       if (query != null && query.isNotEmpty) 'q': query,
       if (sort.queryValue.isNotEmpty) 'sort': sort.queryValue,
@@ -33,7 +33,8 @@ class PersonRepository {
     String? fullNameKana,
     String? department,
     String? jobTitle,
-    String? occupationCode,
+    String? occupationName,
+    String? industryName,
     String? companyName,
     String? tel,
     String? mobile,
@@ -50,7 +51,8 @@ class PersonRepository {
       'fullNameKana': fullNameKana,
       'department': department,
       'jobTitle': jobTitle,
-      'occupationCode': occupationCode,
+      'occupationName': occupationName,
+      'industryName': industryName,
       'companyName': companyName,
       'tel': tel,
       'mobile': mobile,
@@ -71,10 +73,9 @@ class PersonRepository {
     String? fullNameKana,
     String? department,
     String? jobTitle,
-    String? occupationCode,
+    String? occupationName,
+    String? industryName,
     String? companyName,
-    required int importance,
-    required bool importanceIsManual,
     required String visibility,
     String? tel,
     String? mobile,
@@ -89,10 +90,9 @@ class PersonRepository {
       'fullNameKana': fullNameKana,
       'department': department,
       'jobTitle': jobTitle,
-      'occupationCode': occupationCode,
+      'occupationName': occupationName,
+      'industryName': industryName,
       'companyName': companyName,
-      'importance': importance,
-      'importanceIsManual': importanceIsManual,
       'visibility': visibility,
       'tel': tel,
       'mobile': mobile,
@@ -160,12 +160,6 @@ class PersonRepository {
     return PersonVoiceDraft.fromJson(response.data as Map<String, dynamic>);
   }
 
-  // 職種マスタ（Q-011解消）。人物編集・登録画面の選択肢、人脈図の凡例に使用
-  Future<List<OccupationTypeItem>> listOccupationTypes() async {
-    final response = await _dio.get('/api/masters/occupation-types');
-    return (response.data as List).map((e) => OccupationTypeItem.fromJson(e as Map<String, dynamic>)).toList();
-  }
-
   Future<List<ContactItem>> listContacts(String personId) async {
     final response = await _dio.get('/api/persons/$personId/contacts');
     return (response.data as List).map((e) => ContactItem.fromJson(e as Map<String, dynamic>)).toList();
@@ -189,7 +183,9 @@ class PersonRepository {
   }) async {
     final response = await _dio.post('/api/persons/$personId/contacts', data: {
       'contactType': contactType,
-      'occurredAt': occurredAt.toIso8601String(),
+      // サーバー側はDateTimeOffsetをUTC(Offset=0)としてしか受け付けない（Npgsqlのtimestamptz制約）ため、
+      // ローカル時刻のまま送るとタイムゾーン付きの文字列になり書き込み時に例外になる。必ずUTCに変換して送る。
+      'occurredAt': occurredAt.toUtc().toIso8601String(),
       'place': place,
       'note': note,
     });

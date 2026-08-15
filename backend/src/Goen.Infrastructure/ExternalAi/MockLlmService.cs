@@ -36,6 +36,13 @@ public class MockLlmService : ILlmService
         return Task.FromResult<IReadOnlyList<RelationSuggestion>>(suggestions);
     }
 
-    public Task<string> ComposeTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default) =>
-        Task.FromResult("（ダミー応答）LLMが未接続のため、検索結果の生データのみ確認してください。");
+    public Task<string> ComposeTextAsync(
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyCollection<AttachmentInput>? attachments = null,
+        CancellationToken cancellationToken = default)
+    {
+        var attachmentNote = attachments is { Count: > 0 } ? $"（添付{attachments.Count}件を含む）" : "";
+        return Task.FromResult($"（ダミー応答）LLMが未接続のため、検索結果の生データのみ確認してください。{attachmentNote}");
+    }
 }

@@ -256,7 +256,8 @@ class _PersonRegisterConfirmScreenState
   final TextEditingController _note = TextEditingController();
   final TextEditingController _metPlace = TextEditingController();
   final TextEditingController _voiceText = TextEditingController();
-  String? _occupationCode;
+  final TextEditingController _industryName = TextEditingController();
+  final TextEditingController _occupationName = TextEditingController();
   bool _isSubmitting = false;
   bool _isRefining = false;
   PersonListItem? _introducer;
@@ -275,6 +276,8 @@ class _PersonRegisterConfirmScreenState
       _note,
       _metPlace,
       _voiceText,
+      _industryName,
+      _occupationName,
     ]) {
       c.dispose();
     }
@@ -334,7 +337,8 @@ class _PersonRegisterConfirmScreenState
             fullNameKana: _emptyToNull(_fullNameKana.text),
             companyName: _emptyToNull(_companyName.text),
             jobTitle: _emptyToNull(_jobTitle.text),
-            occupationCode: _occupationCode,
+            occupationName: _emptyToNull(_occupationName.text),
+            industryName: _emptyToNull(_industryName.text),
             email: _emptyToNull(_email.text),
             mobile: _emptyToNull(_mobile.text),
             note: _emptyToNull(_note.text),
@@ -399,10 +403,9 @@ class _PersonRegisterConfirmScreenState
             ),
           ),
           const SizedBox(height: 12),
-          OccupationDropdown(
-            value: _occupationCode,
-            onChanged: (v) => setState(() => _occupationCode = v),
-          ),
+          IndustryComboBox(controller: _industryName),
+          const SizedBox(height: 12),
+          OccupationComboBox(controller: _occupationName),
           const SizedBox(height: 12),
           TextField(
             controller: _email,

@@ -12,3 +12,11 @@ public record AiAssistantQueryResponse(
     string Answer,
     List<AssistantRouteResponse> Routes,
     List<AssistantHintResponse> Hints);
+
+public record AiAssistantHistoryItemResponse(
+    Guid QueryId,
+    string Instruction,
+    string Answer,
+    List<AssistantRouteResponse> Routes,
+    List<AssistantHintResponse> Hints,
+    DateTimeOffset CreatedAt);

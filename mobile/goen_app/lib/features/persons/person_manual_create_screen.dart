@@ -26,12 +26,13 @@ class _PersonManualCreateScreenState
   final _fullNameKana = TextEditingController();
   final _companyName = TextEditingController();
   final _jobTitle = TextEditingController();
+  final _industryName = TextEditingController();
+  final _occupationName = TextEditingController();
   final _email = TextEditingController();
   final _mobile = TextEditingController();
   final _note = TextEditingController();
   final _metPlace = TextEditingController();
   final _voiceDraftText = TextEditingController();
-  String? _occupationCode;
   bool _isSubmitting = false;
   bool _isApplyingVoiceDraft = false;
   PersonListItem? _introducer;
@@ -44,6 +45,8 @@ class _PersonManualCreateScreenState
       _fullNameKana,
       _companyName,
       _jobTitle,
+      _industryName,
+      _occupationName,
       _email,
       _mobile,
       _note,
@@ -109,7 +112,8 @@ class _PersonManualCreateScreenState
             fullNameKana: _emptyToNull(_fullNameKana.text),
             companyName: _emptyToNull(_companyName.text),
             jobTitle: _emptyToNull(_jobTitle.text),
-            occupationCode: _occupationCode,
+            occupationName: _emptyToNull(_occupationName.text),
+            industryName: _emptyToNull(_industryName.text),
             email: _emptyToNull(_email.text),
             mobile: _emptyToNull(_mobile.text),
             note: _emptyToNull(_note.text),
@@ -223,10 +227,9 @@ class _PersonManualCreateScreenState
             ),
           ),
           const SizedBox(height: 12),
-          OccupationDropdown(
-            value: _occupationCode,
-            onChanged: (v) => setState(() => _occupationCode = v),
-          ),
+          IndustryComboBox(controller: _industryName),
+          const SizedBox(height: 12),
+          OccupationComboBox(controller: _occupationName),
           const SizedBox(height: 12),
           TextFormField(
             controller: _email,

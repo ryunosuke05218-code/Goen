@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../home/main_bottom_nav_bar.dart';
 import '../persons/models/person_models.dart';
 import '../persons/person_repository.dart';
 
@@ -66,6 +67,7 @@ class _OtherUserNetworkScreenState extends ConsumerState<OtherUserNetworkScreen>
           ],
         ),
       ),
+      bottomNavigationBar: const MainBottomNavBar(selectedIndex: 3),
     );
   }
 }

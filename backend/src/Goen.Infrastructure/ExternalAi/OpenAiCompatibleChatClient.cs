@@ -65,21 +65,25 @@ public class OpenAiCompatibleChatClient : ILlmService
             Hobby: GetString(json, "hobby"));
     }
 
-    // F-010: 資料ファイル（画像・PDF）はテキスト抽出せず、名刺OCR（LlmVisionOcrService）と同様にBase64データURLとして
+    // F-010/F-026: 資料ファイル（画像・PDF）はテキスト抽出せず、名刺OCR（LlmVisionOcrService）と同様にBase64データURLとして
     // マルチモーダル入力に含める。複数添付する場合はすべて同一ユーザーメッセージ内の別コンテンツパートとして渡す。
-    private async Task<JsonElement> CallChatJsonWithAttachmentsAsync(
-        string systemPrompt, string userPrompt, IReadOnlyCollection<AttachmentInput> attachments, CancellationToken ct)
+    private static object[] BuildAttachmentContentParts(string userPrompt, IReadOnlyCollection<AttachmentInput> attachments)
     {
         var contentParts = new List<object> { new TextContentPart("text", userPrompt) };
         contentParts.AddRange(attachments.Select(a =>
             (object)new ImageContentPart("image_url", new ImageUrl($"data:{a.MimeType};base64,{Convert.ToBase64String(a.Bytes)}"))));
+        return contentParts.ToArray();
+    }
 
+    private async Task<JsonElement> CallChatJsonWithAttachmentsAsync(
+        string systemPrompt, string userPrompt, IReadOnlyCollection<AttachmentInput> attachments, CancellationToken ct)
+    {
         var request = new VisionChatRequest(
             Model: _options.Model,
             Messages: new object[]
             {
                 new ChatMessage("system", systemPrompt),
-                new VisionChatMessage("user", contentParts.ToArray()),
+                new VisionChatMessage("user", BuildAttachmentContentParts(userPrompt, attachments)),
             },
             ResponseFormat: new ResponseFormat("json_object"),
             Temperature: 0.2);
@@ -94,6 +98,30 @@ public class OpenAiCompatibleChatClient : ILlmService
             ?? throw new InvalidOperationException($"{_options.Provider} APIの応答にcontentが含まれていません。");
 
         return LenientJson.Parse(content);
+    }
+
+    // F-026: 紹介文作成でHPリンク・資料ファイルが添付された場合の自由文生成（JSON modeを使わない点がカルテ生成と異なる）
+    private async Task<string> CallChatTextWithAttachmentsAsync(
+        string systemPrompt, string userPrompt, IReadOnlyCollection<AttachmentInput> attachments, CancellationToken ct)
+    {
+        var request = new VisionChatRequest(
+            Model: _options.Model,
+            Messages: new object[]
+            {
+                new ChatMessage("system", systemPrompt),
+                new VisionChatMessage("user", BuildAttachmentContentParts(userPrompt, attachments)),
+            },
+            ResponseFormat: null,
+            Temperature: 0.3);
+
+        using var response = await _http.PostAsJsonAsync("chat/completions", request, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: ct)
+            ?? throw new InvalidOperationException($"{_options.Provider} APIから空の応答が返却されました。");
+
+        return body.Choices.FirstOrDefault()?.Message.Content?.Trim()
+            ?? throw new InvalidOperationException($"{_options.Provider} APIの応答にcontentが含まれていません。");
     }
 
     private record VisionChatRequest(
@@ -187,8 +215,17 @@ public class OpenAiCompatibleChatClient : ILlmService
         return result;
     }
 
-    public async Task<string> ComposeTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+    public async Task<string> ComposeTextAsync(
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyCollection<AttachmentInput>? attachments = null,
+        CancellationToken cancellationToken = default)
     {
+        if (attachments is { Count: > 0 })
+        {
+            return await CallChatTextWithAttachmentsAsync(systemPrompt, userPrompt, attachments, cancellationToken);
+        }
+
         var request = new ChatRequest(
             Model: _options.Model,
             Messages: new[]

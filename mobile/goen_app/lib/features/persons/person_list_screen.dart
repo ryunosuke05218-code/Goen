@@ -22,7 +22,7 @@ class PersonListScreen extends ConsumerStatefulWidget {
 
 class _PersonListScreenState extends ConsumerState<PersonListScreen> {
   String _query = '';
-  PersonSortOrder _sort = PersonSortOrder.importance;
+  PersonSortOrder _sort = PersonSortOrder.lastContact;
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +94,7 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
                       }
                       final p = persons[index - 1];
                       return ListTile(
-                        leading: CircleAvatar(child: Text(_star(p.importance))),
+                        leading: CircleAvatar(child: Text(p.fullName.isEmpty ? '?' : p.fullName.substring(0, 1))),
                         title: Text(p.fullName),
                         subtitle: Text([p.companyName, p.jobTitle]
                             .whereType<String>()
@@ -116,6 +116,4 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
       ),
     );
   }
-
-  String _star(int importance) => '★$importance';
 }

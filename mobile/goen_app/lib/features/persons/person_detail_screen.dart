@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../home/main_bottom_nav_bar.dart';
 import 'models/person_models.dart';
 import 'person_network_screen.dart';
 import 'person_repository.dart';
@@ -20,6 +21,16 @@ final personContactsProvider = FutureProvider.autoDispose.family<List<ContactIte
   final repo = ref.watch(personRepositoryProvider);
   return repo.listContacts(personId);
 });
+
+// F-033: 情報充実度に応じた入力促進ヒント。閉じた人物IDの集合をアプリ再起動まで保持する（永続化はしない）
+class _InfoHintDismissalNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => {};
+
+  void dismiss(String personId) => state = {...state, personId};
+}
+
+final _infoHintDismissedProvider = NotifierProvider<_InfoHintDismissalNotifier, Set<String>>(_InfoHintDismissalNotifier.new);
 
 /// S-006 人物カルテ画面（F-010 AI要約・F-011 接点履歴タイムライン）
 class PersonDetailScreen extends ConsumerWidget {
@@ -58,7 +69,10 @@ class PersonDetailScreen extends ConsumerWidget {
       body: detailAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, st) => Center(child: Text('読み込みに失敗しました: $err')),
-        data: (person) => RefreshIndicator(
+        data: (person) {
+          final hasNotes = (contactsAsync.value ?? const [])
+              .any((c) => (c.note ?? '').trim().isNotEmpty);
+          return RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(personDetailProvider(personId));
             ref.invalidate(personContactsProvider(personId));
@@ -75,16 +89,6 @@ class PersonDetailScreen extends ConsumerWidget {
                   .join(' / ')),
               if (person.occupationName != null)
                 Text('職種: ${person.occupationName}', style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Text('重要度: ${'★' * person.importance}'),
-                  if (person.importanceIsManual) const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: Chip(label: Text('手動設定'), visualDensity: VisualDensity.compact),
-                  ),
-                ],
-              ),
               if (person.introducerPersonName != null) ...[
                 const SizedBox(height: 4),
                 InkWell(
@@ -110,6 +114,8 @@ class PersonDetailScreen extends ConsumerWidget {
                 ),
               ],
               const SizedBox(height: 16),
+              if (person.aiSummary == null && !hasNotes)
+                _InfoRichnessHint(personId: personId),
               _SectionCard(
                 title: 'AI要約',
                 trailing: person.aiSummary == null
@@ -130,7 +136,13 @@ class PersonDetailScreen extends ConsumerWidget {
                         onPressed: () => _showGenerateCardSheet(context, ref, personId),
                         child: const Text('AIカルテを生成する（F-010）'),
                       )
-                    : Text(person.aiSummary!),
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(person.aiSummary!),
+                          _AiSummarySources(person: person),
+                        ],
+                      ),
               ),
               if (person.aiBusiness != null) _SectionCard(title: '事業内容', child: Text(person.aiBusiness!)),
               if (person.aiIssues != null) _SectionCard(title: '抱える課題', child: Text(person.aiIssues!)),
@@ -273,7 +285,8 @@ class PersonDetailScreen extends ConsumerWidget {
               ),
             ],
           ),
-        ),
+          );
+        },
       ),
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
@@ -290,6 +303,7 @@ class PersonDetailScreen extends ConsumerWidget {
           }
         },
       ),
+      bottomNavigationBar: const MainBottomNavBar(selectedIndex: 1),
     );
   }
 }
@@ -485,6 +499,82 @@ class _SectionCard extends StatelessWidget {
             child,
           ],
         ),
+      ),
+    );
+  }
+}
+
+// F-033: 接点メモもAI要約もまだない人物カルテに、追加入力を促すヒントを表示する（非強制・閉じられる）
+class _InfoRichnessHint extends ConsumerWidget {
+  const _InfoRichnessHint({required this.personId});
+
+  final String personId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dismissed = ref.watch(_infoHintDismissedProvider).contains(personId);
+    if (dismissed) return const SizedBox.shrink();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.lightbulb_outline, size: 18, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'HPリンクや接点メモを追加すると、AIがより詳しい要約や紹介文を作れるようになります',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+            InkWell(
+              onTap: () => ref.read(_infoHintDismissedProvider.notifier).dismiss(personId),
+              child: const Icon(Icons.close, size: 16),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// F-032: AI要約が生成時に参照したHPリンク・資料ファイル・接点メモ件数を表示する（根拠の可視化）
+class _AiSummarySources extends StatelessWidget {
+  const _AiSummarySources({required this.person});
+
+  final PersonDetail person;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUrls = person.aiSummarySourceUrls.isNotEmpty;
+    final hasFiles = person.aiSummarySourceFiles.isNotEmpty;
+    final hasContacts = person.aiSummaryContactCount > 0;
+    if (!hasUrls && !hasFiles && !hasContacts) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('参照した情報', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey)),
+          const SizedBox(height: 4),
+          if (hasContacts)
+            Text('・接点メモ ${person.aiSummaryContactCount}件', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          for (final url in person.aiSummarySourceUrls)
+            InkWell(
+              onTap: () => _openLink(context, url),
+              child: Text(
+                '・HPリンク: $url',
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline),
+              ),
+            ),
+          for (final file in person.aiSummarySourceFiles)
+            Text('・資料ファイル: $file', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
       ),
     );
   }

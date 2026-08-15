@@ -27,6 +27,8 @@ public class GoenDbContext : DbContext
     public DbSet<OccupationType> OccupationTypes => Set<OccupationType>();
     public DbSet<Industry> Industries => Set<Industry>();
     public DbSet<Prefecture> Prefectures => Set<Prefecture>();
+    public DbSet<AiAssistantQuery> AiAssistantQueries => Set<AiAssistantQuery>();
+    public DbSet<IntroLetterRequest> IntroLetterRequests => Set<IntroLetterRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -155,6 +157,21 @@ public class GoenDbContext : DbContext
             e.HasKey(x => x.RelationId);
             e.Property(x => x.Version).HasDefaultValue(1);
             e.HasIndex(x => new { x.FromPersonId, x.ToPersonId, x.RelationType }).IsUnique();
+        });
+
+        modelBuilder.Entity<AiAssistantQuery>(e =>
+        {
+            e.ToTable("ai_assistant_queries");
+            e.HasKey(x => x.QueryId);
+            e.Property(x => x.RoutesJson).HasColumnName("routes").HasColumnType("jsonb");
+            e.Property(x => x.HintsJson).HasColumnName("hints").HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<IntroLetterRequest>(e =>
+        {
+            e.ToTable("intro_letter_requests");
+            e.HasKey(x => x.RequestId);
+            e.HasOne(x => x.TargetPerson).WithMany().HasForeignKey(x => x.TargetPersonId);
         });
     }
 }

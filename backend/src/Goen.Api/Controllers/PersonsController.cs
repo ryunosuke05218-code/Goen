@@ -20,6 +20,7 @@ public class PersonsController : ControllerBase
 {
     private readonly GoenDbContext _db;
     private readonly PersonReadSyncService _readSync;
+    private readonly MasterDataService _masterData;
     private readonly NetworkGraphService _network;
     private readonly RagIndexQueueService _ragQueue;
     private readonly IOcrService _ocr;
@@ -27,11 +28,12 @@ public class PersonsController : ControllerBase
     private readonly ISpeechToTextService _asr;
     private readonly ILlmService _llm;
     private readonly AiChatOptions _aiOptions;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly UrlTextFetcher _urlTextFetcher;
 
     public PersonsController(
         GoenDbContext db,
         PersonReadSyncService readSync,
+        MasterDataService masterData,
         NetworkGraphService network,
         RagIndexQueueService ragQueue,
         IOcrService ocr,
@@ -39,10 +41,11 @@ public class PersonsController : ControllerBase
         ISpeechToTextService asr,
         ILlmService llm,
         IOptions<AiChatOptions> aiOptions,
-        IHttpClientFactory httpClientFactory)
+        UrlTextFetcher urlTextFetcher)
     {
         _db = db;
         _readSync = readSync;
+        _masterData = masterData;
         _network = network;
         _ragQueue = ragQueue;
         _ocr = ocr;
@@ -50,7 +53,7 @@ public class PersonsController : ControllerBase
         _asr = asr;
         _llm = llm;
         _aiOptions = aiOptions.Value;
-        _httpClientFactory = httpClientFactory;
+        _urlTextFetcher = urlTextFetcher;
     }
 
     // F-004（簡易版）: persons_read への氏名・要約の部分一致検索。曖昧検索（RAG）は将来のフェーズで拡張する。
@@ -73,13 +76,13 @@ public class PersonsController : ControllerBase
             "name_asc" => query.OrderBy(r => r.FullNameKana ?? r.FullName),
             "registered_desc" => query.OrderByDescending(r => r.CreatedAt),
             "registered_asc" => query.OrderBy(r => r.CreatedAt),
-            _ => query.OrderByDescending(r => r.Importance).ThenByDescending(r => r.LastContactAt),
+            _ => query.OrderByDescending(r => r.LastContactAt),
         };
 
         var items = await query
             .Select(r => new PersonListItem(
                 r.PersonId, r.FullName, r.FullNameKana, r.CompanyName, r.JobTitle,
-                r.Importance, r.Summary, r.LastContactAt, r.ContactCount))
+                r.Summary, r.LastContactAt, r.ContactCount))
             .ToListAsync(ct);
 
         return Ok(new PersonListResponse(items, totalCount));
@@ -101,7 +104,8 @@ public class PersonsController : ControllerBase
             .Where(c => c.PersonId == personId && c.IsLatest)
             .FirstOrDefaultAsync(ct);
 
-        return Ok(ToDetail(person, latestCard));
+        var industryName = await GetIndustryNameAsync(person, ct);
+        return Ok(ToDetail(person, latestCard, industryName));
     }
 
     [HttpPost]
@@ -115,6 +119,9 @@ public class PersonsController : ControllerBase
         {
             companyId = await ResolveCompanyAsync(request.CompanyName, ct);
         }
+
+        // F-030: 職種・業種はコンボボックス（自由入力）で選択/入力される。未登録の名称はここでマスタに即時登録する
+        var occupationCode = await _masterData.ResolveOccupationAsync(request.OccupationName, request.IndustryName, ct);
 
         // F-005 人脈グラフ（AIを使わない確実な自動生成）: 紹介者を選択式で指定してもらい、そのまま referrer 関係を張る
         Guid? introducerPersonId = null;
@@ -134,7 +141,7 @@ public class PersonsController : ControllerBase
             FullNameKana = request.FullNameKana,
             Department = request.Department,
             JobTitle = request.JobTitle,
-            OccupationCode = string.IsNullOrWhiteSpace(request.OccupationCode) ? null : request.OccupationCode,
+            OccupationCode = occupationCode,
             SourceType = request.SourceType,
             IntroducerPersonId = introducerPersonId,
             FirstMetAt = DateOnly.FromDateTime(DateTime.UtcNow),
@@ -198,7 +205,8 @@ public class PersonsController : ControllerBase
             .Include(p => p.IntroducerPerson)
             .FirstAsync(p => p.PersonId == person.PersonId, ct);
 
-        return CreatedAtAction(nameof(Get), new { personId = person.PersonId }, ToDetail(created, null));
+        var createdIndustryName = await GetIndustryNameAsync(created, ct);
+        return CreatedAtAction(nameof(Get), new { personId = person.PersonId }, ToDetail(created, null, createdIndustryName));
     }
 
     [HttpPut("{personId:guid}")]
@@ -212,16 +220,17 @@ public class PersonsController : ControllerBase
             .FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
         if (person is null) return NotFound();
 
+        // F-030: 職種・業種はコンボボックス（自由入力）で選択/入力される。未登録の名称はここでマスタに即時登録する
+        var occupationCode = await _masterData.ResolveOccupationAsync(request.OccupationName, request.IndustryName, ct);
+
         person.FullName = request.FullName;
         person.FullNameKana = request.FullNameKana;
         person.Department = request.Department;
         person.JobTitle = request.JobTitle;
-        person.OccupationCode = string.IsNullOrWhiteSpace(request.OccupationCode) ? null : request.OccupationCode;
-        person.Occupation = string.IsNullOrWhiteSpace(request.OccupationCode)
+        person.OccupationCode = occupationCode;
+        person.Occupation = occupationCode is null
             ? null
-            : await _db.OccupationTypes.FindAsync(new object[] { request.OccupationCode }, ct);
-        person.Importance = request.Importance;
-        person.ImportanceIsManual = request.ImportanceIsManual; // F-022: 手動上書き時はAI自動算出で以後上書きしない
+            : await _db.OccupationTypes.FindAsync(new object[] { occupationCode }, ct);
         person.Visibility = request.Visibility;
         person.MetPlace = request.MetPlace;
         person.UpdatedBy = User.GetUserId();
@@ -250,7 +259,8 @@ public class PersonsController : ControllerBase
         await _ragQueue.EnqueueAsync("profile", personId, personId, 'U', ct);
 
         var latestCard = await _db.AiPersonCards.FirstOrDefaultAsync(c => c.PersonId == personId && c.IsLatest, ct);
-        return Ok(ToDetail(person, latestCard));
+        var industryName = await GetIndustryNameAsync(person, ct);
+        return Ok(ToDetail(person, latestCard, industryName));
     }
 
     [HttpDelete("{personId:guid}")]
@@ -326,7 +336,7 @@ public class PersonsController : ControllerBase
 
         try
         {
-            var content = await _llm.ComposeTextAsync(systemPrompt, userPrompt, ct);
+            var content = await _llm.ComposeTextAsync(systemPrompt, userPrompt, cancellationToken: ct);
             var json = LenientJson.Parse(content);
 
             return Ok(new OcrDraftResponse(
@@ -375,7 +385,7 @@ public class PersonsController : ControllerBase
 
         try
         {
-            var content = await _llm.ComposeTextAsync(systemPrompt, userPrompt, ct);
+            var content = await _llm.ComposeTextAsync(systemPrompt, userPrompt, cancellationToken: ct);
             var json = LenientJson.Parse(content);
 
             return Ok(new VoiceDraftResponse(
@@ -402,6 +412,10 @@ public class PersonsController : ControllerBase
         var person = await _db.Persons.FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
         if (person is null) return NotFound();
 
+        // PostgreSQLのtimestamptz列にはOffset=0（UTC）のDateTimeOffsetしか書き込めない（Npgsqlの制約）。
+        // クライアントは端末のローカル時刻をそのまま送ってくる可能性があるため、保存前に必ずUTCへ正規化する。
+        var occurredAtUtc = request.OccurredAt.ToUniversalTime();
+
         var contact = new Contact
         {
             ContactId = Guid.NewGuid(),
@@ -409,7 +423,7 @@ public class PersonsController : ControllerBase
             PersonId = personId,
             UserId = User.GetUserId(),
             ContactType = request.ContactType,
-            OccurredAt = request.OccurredAt,
+            OccurredAt = occurredAtUtc,
             Place = request.Place,
             Note = request.Note,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -419,9 +433,9 @@ public class PersonsController : ControllerBase
         };
         _db.Contacts.Add(contact);
 
-        if (person.LastContactAt is null || request.OccurredAt > person.LastContactAt)
+        if (person.LastContactAt is null || occurredAtUtc > person.LastContactAt)
         {
-            person.LastContactAt = request.OccurredAt;
+            person.LastContactAt = occurredAtUtc;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -571,7 +585,7 @@ public class PersonsController : ControllerBase
         // 任意: HPリンクの本文取得（失敗しても他の情報のみで続行する）
         if (!string.IsNullOrWhiteSpace(hpUrl))
         {
-            var pageText = await TryFetchUrlTextAsync(hpUrl, ct);
+            var pageText = await _urlTextFetcher.TryFetchTextAsync(hpUrl, ct);
             if (pageText is not null)
             {
                 sourceTexts.Add($"[HPリンクの内容: {hpUrl}]\n{pageText}");
@@ -725,7 +739,7 @@ public class PersonsController : ControllerBase
         var graph = await _network.GetNetworkAsync(personId, orgId, depth, ct);
 
         return Ok(new NetworkGraphResponse(
-            graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.IndustryName, n.OccupationName, n.Importance, n.Depth, n.IsSelf)).ToList(),
+            graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.IndustryName, n.OccupationName, n.Depth, n.IsSelf)).ToList(),
             graph.Edges.Select(e => new NetworkEdgeResponse(e.RelationId, e.FromPersonId, e.ToPersonId, e.RelationType, e.Strength)).ToList()));
     }
 
@@ -875,38 +889,6 @@ public class PersonsController : ControllerBase
         return company.CompanyId;
     }
 
-    // F-010: HPリンクの本文を取得しテキスト化する。取得・パース失敗時はnullを返し、呼び出し元は他の情報のみで続行する。
-    private async Task<string?> TryFetchUrlTextAsync(string url, CancellationToken ct)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
-        {
-            return null;
-        }
-
-        try
-        {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(10);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; GoenBot/1.0)");
-
-            var html = await client.GetStringAsync(uri, ct);
-            var text = System.Text.RegularExpressions.Regex.Replace(html, "<script[^>]*>.*?</script>", " ",
-                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            text = System.Text.RegularExpressions.Regex.Replace(text, "<style[^>]*>.*?</style>", " ",
-                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            text = System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", " ");
-            text = System.Net.WebUtility.HtmlDecode(text);
-            text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
-
-            // プロンプトが肥大化しすぎないよう、本文は先頭3000文字程度に丸める
-            return text.Length > 3000 ? text[..3000] : text;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     private static OcrDraftResponse ToUnchangedOcrDraft(RefineOcrDraftRequest request) => new(
         request.FullName, request.FullNameKana, request.CompanyName, request.Department, request.JobTitle,
         request.Tel, request.Mobile, request.Email, request.Address,
@@ -925,15 +907,63 @@ public class PersonsController : ControllerBase
     private static string NormalizeCompanyName(string name) =>
         name.Replace("株式会社", "").Replace("有限会社", "").Trim();
 
-    private static PersonDetail ToDetail(Person person, AiPersonCard? card) => new(
-        person.PersonId, person.FullName, person.FullNameKana, person.Department, person.JobTitle,
-        person.OccupationCode, person.Occupation?.OccupationName,
-        person.CompanyId, person.Company?.CompanyName, person.Importance, person.ImportanceIsManual,
-        person.Visibility, person.FirstMetAt, person.MetPlace, person.LastContactAt, person.SourceType,
-        person.Profile?.Tel, person.Profile?.Mobile, person.Profile?.Email, person.Profile?.Address, person.Profile?.Note,
-        ParseSnsLinks(person.Profile?.SnsAccountsJson),
-        card?.Summary, card?.Business, card?.Issues, card?.Hobby,
-        person.IntroducerPersonId, person.IntroducerPerson?.FullName);
+    // 業種は「人物が選んだ職種に紐づく業種」を優先する（F-030）。会社の業種は入力経路がなく実質未使用のため、
+    // 職種が未設定または職種に業種が紐付けられていない場合のみ補助的にフォールバックする（PersonReadSyncServiceと同じ方針）。
+    private async Task<string?> GetIndustryNameAsync(Person person, CancellationToken ct)
+    {
+        var industryCode = person.Occupation?.IndustryCode ?? person.Company?.IndustryCode;
+        if (industryCode is null) return null;
+        return await _db.Industries.Where(i => i.IndustryCode == industryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);
+    }
+
+    private static PersonDetail ToDetail(Person person, AiPersonCard? card, string? industryName)
+    {
+        var (sourceUrls, sourceFiles) = ParseInputSources(card?.InputSourcesJson);
+        return new(
+            person.PersonId, person.FullName, person.FullNameKana, person.Department, person.JobTitle,
+            person.OccupationCode, person.Occupation?.OccupationName, industryName,
+            person.CompanyId, person.Company?.CompanyName,
+            person.Visibility, person.FirstMetAt, person.MetPlace, person.LastContactAt, person.SourceType,
+            person.Profile?.Tel, person.Profile?.Mobile, person.Profile?.Email, person.Profile?.Address, person.Profile?.Note,
+            ParseSnsLinks(person.Profile?.SnsAccountsJson),
+            card?.Summary, card?.Business, card?.Issues, card?.Hobby,
+            person.IntroducerPersonId, person.IntroducerPerson?.FullName,
+            sourceUrls, sourceFiles, card?.InputContactIds.Length ?? 0);
+    }
+
+    // F-032: AI要約生成時に参照したHPリンク・資料ファイル（InputSourcesJson）を、カルテ画面表示用にURL/ファイル名へ分離する
+    private static (IReadOnlyList<string> Urls, IReadOnlyList<string> Files) ParseInputSources(string? inputSourcesJson)
+    {
+        if (string.IsNullOrWhiteSpace(inputSourcesJson))
+        {
+            return (Array.Empty<string>(), Array.Empty<string>());
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(inputSourcesJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return (Array.Empty<string>(), Array.Empty<string>());
+            }
+
+            var urls = new List<string>();
+            var files = new List<string>();
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
+                var value = item.TryGetProperty("value", out var v) ? v.GetString() : null;
+                if (string.IsNullOrWhiteSpace(value)) continue;
+                if (type == "url") urls.Add(value);
+                else if (type == "file") files.Add(value);
+            }
+            return (urls, files);
+        }
+        catch (JsonException)
+        {
+            return (Array.Empty<string>(), Array.Empty<string>());
+        }
+    }
 
     private static IReadOnlyList<SnsLink> ParseSnsLinks(string? json)
     {

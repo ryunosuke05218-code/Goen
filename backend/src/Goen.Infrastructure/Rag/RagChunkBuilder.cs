@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Goen.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -84,10 +85,61 @@ public class RagChunkBuilder
         if (!string.IsNullOrWhiteSpace(card.Hobby)) parts.Add($"趣味・人柄: {card.Hobby}");
         if (!string.IsNullOrWhiteSpace(card.Strengths)) parts.Add($"強み: {card.Strengths}");
 
-        if (parts.Count == 0) return new List<RagChunkDraft>();
-
         // カルテは世代ごとに新しいcard_id（＝新しいsource_id）が発行されるため、内容自体は不変。source_versionは常に1でよい。
-        return new List<RagChunkDraft> { new(0, string.Join("\n", parts), 1, card.GeneratedAt) };
+        var chunks = new List<RagChunkDraft>();
+        if (parts.Count > 0)
+        {
+            chunks.Add(new RagChunkDraft(0, string.Join("\n", parts), 1, card.GeneratedAt));
+        }
+
+        // このAI要約の生成時に参照したHPリンク・資料ファイル（InputSourcesJson）を、独立したチャンクとして検索対象に含める。
+        // 要約本文と同じチャンクに混ぜると、AI指示（AiAssistantService）が抜粋時に120文字へ切り詰める際に埋もれて
+        // LLMに届かなくなるため、あえて別チャンクにして単独でも検索・参照できるようにする。
+        var sourcesContent = BuildInputSourcesContent(card.InputSourcesJson);
+        if (sourcesContent is not null)
+        {
+            chunks.Add(new RagChunkDraft(chunks.Count, sourcesContent, 1, card.GeneratedAt));
+        }
+
+        return chunks;
+    }
+
+    private static string? BuildInputSourcesContent(string? inputSourcesJson)
+    {
+        if (string.IsNullOrWhiteSpace(inputSourcesJson)) return null;
+
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(inputSourcesJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+
+            var urls = new List<string>();
+            var files = new List<string>();
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
+                var value = item.TryGetProperty("value", out var v) ? v.GetString() : null;
+                if (string.IsNullOrWhiteSpace(value)) continue;
+                if (type == "url") urls.Add(value);
+                else if (type == "file") files.Add(value);
+            }
+
+            if (urls.Count == 0 && files.Count == 0) return null;
+
+            var lines = new List<string> { "AI要約の参照元:" };
+            if (urls.Count > 0) lines.Add($"HPリンク: {string.Join(", ", urls)}");
+            if (files.Count > 0) lines.Add($"資料ファイル: {string.Join(", ", files)}");
+            return string.Join("\n", lines);
+        }
     }
 
     private async Task<List<RagChunkDraft>> BuildTranscriptAsync(Guid transcriptId, CancellationToken ct)

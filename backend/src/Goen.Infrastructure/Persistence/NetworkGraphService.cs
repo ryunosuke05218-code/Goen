@@ -5,7 +5,7 @@ namespace Goen.Infrastructure.Persistence;
 
 public record NetworkNode(
     Guid PersonId, string FullName, string? CompanyName, string? IndustryName, string? OccupationName,
-    int Importance, int Depth, bool IsSelf = false);
+    int Depth, bool IsSelf = false);
 public record NetworkEdge(Guid RelationId, Guid FromPersonId, Guid ToPersonId, string RelationType, int Strength);
 public record NetworkGraph(IReadOnlyList<NetworkNode> Nodes, IReadOnlyList<NetworkEdge> Edges);
 
@@ -30,13 +30,12 @@ public class NetworkGraphService
     {
         var depth1 = await _db.PersonsRead
             .Where(r => r.OwnerUserId == ownerUserId && r.OrgId == orgId)
-            .OrderByDescending(r => r.Importance)
-            .ThenByDescending(r => r.LastContactAt)
+            .OrderByDescending(r => r.LastContactAt)
             .Take(depth1Limit)
-            .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance })
+            .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName })
             .ToListAsync(ct);
 
-        var selfNode = new NetworkNode(SelfPersonId, ownerDisplayName, null, null, null, 0, 0, true);
+        var selfNode = new NetworkNode(SelfPersonId, ownerDisplayName, null, null, null, 0, true);
 
         if (depth1.Count == 0)
         {
@@ -68,19 +67,19 @@ public class NetworkGraphService
                 ? []
                 : await _db.PersonsRead
                     .Where(r => depth2Ids.Contains(r.PersonId) && r.OrgId == orgId)
-                    .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance })
+                    .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName })
                     .ToListAsync(ct);
 
             var allIds = depth1Ids.Concat(depth2Rows.Select(r => r.PersonId)).ToHashSet();
 
             var nodes = new List<NetworkNode> { selfNode };
-            nodes.AddRange(depth1.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.IndustryName, p.OccupationName, p.Importance, 1)));
-            nodes.AddRange(depth2Rows.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.IndustryName, p.OccupationName, p.Importance, 2)));
+            nodes.AddRange(depth1.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.IndustryName, p.OccupationName, 1)));
+            nodes.AddRange(depth2Rows.Select(p => new NetworkNode(p.PersonId, p.FullName, p.CompanyName, p.IndustryName, p.OccupationName, 2)));
 
             var edges = new List<NetworkEdge>();
-            // 「自分」→直接の人脈 は実データではなく、中心ノードを表現するための合成エッジ
+            // 「自分」→直接の人脈 は実データではなく、中心ノードを表現するための合成エッジ（強さは固定値）
             edges.AddRange(depth1.Select(p =>
-                new NetworkEdge(Guid.NewGuid(), SelfPersonId, p.PersonId, "self", Math.Clamp((int)p.Importance, 1, 5))));
+                new NetworkEdge(Guid.NewGuid(), SelfPersonId, p.PersonId, "self", 3)));
             // 人脈同士の実際の関係（depth1-depth1 / depth1-depth2）
             edges.AddRange(touchingEdges.Where(e => allIds.Contains(e.FromPersonId) && allIds.Contains(e.ToPersonId)));
 
@@ -118,11 +117,11 @@ public class NetworkGraphService
             var ids = depthByPersonId.Keys.ToList();
             var rows = await _db.PersonsRead
                 .Where(r => ids.Contains(r.PersonId) && r.OrgId == orgId)
-                .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance })
+                .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName })
                 .ToListAsync(ct);
 
             var nodes = rows
-                .Select(r => new NetworkNode(r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, r.Importance, depthByPersonId[r.PersonId]))
+                .Select(r => new NetworkNode(r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName, depthByPersonId[r.PersonId]))
                 .ToList();
 
             var nodeIdSet = nodes.Select(n => n.PersonId).ToHashSet();

@@ -1,12 +1,16 @@
+using Goen.Domain.Entities;
 using Goen.Infrastructure.ExternalAi;
 using Goen.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Goen.Infrastructure.Messaging;
 
 // F-026 紹介文（例文）作成機能。
 // 対象人物のDB上の実データ（会社・役職・AI要約・課題・プロフィールメモ・直近の接点メモ）と、
-// 利用者が入力した要件・トーン等の条件をもとに、チャットLLMへ文面の下書き作成のみを依頼する。
+// 利用者が入力した要件・トーン等の条件、任意で添付されたHPリンク・資料ファイルをもとに、
+// チャットLLMへ文面の下書き作成のみを依頼する。
 // 経路提案・RAGヒント（AiAssistantService）と同じ「実データはアプリが用意し、LLMは文章化のみ行う」設計方針を踏襲する。
 public class IntroLetterService
 {
@@ -14,15 +18,20 @@ public class IntroLetterService
 
     private readonly GoenDbContext _db;
     private readonly ILlmService _llm;
+    private readonly UrlTextFetcher _urlTextFetcher;
+    private readonly ILogger<IntroLetterService> _logger;
 
-    public IntroLetterService(GoenDbContext db, ILlmService llm)
+    public IntroLetterService(GoenDbContext db, ILlmService llm, UrlTextFetcher urlTextFetcher, ILogger<IntroLetterService> logger)
     {
         _db = db;
         _llm = llm;
+        _urlTextFetcher = urlTextFetcher;
+        _logger = logger;
     }
 
     public async Task<string> GenerateAsync(
-        Guid targetPersonId, Guid orgId, string requirement, string? tone, string? lengthHint, string? additionalNotes,
+        Guid targetPersonId, Guid orgId, Guid ownerUserId, string requirement, string? tone, string? lengthHint,
+        string? additionalNotes, string? hpUrl, IFormFile? file,
         CancellationToken ct)
     {
         var person = await _db.Persons
@@ -58,9 +67,40 @@ public class IntroLetterService
             facts.Add($"過去の接点メモ: {note}");
         }
 
+        // 任意: HPリンクの本文取得（失敗しても他の情報のみで続行する）
+        if (!string.IsNullOrWhiteSpace(hpUrl))
+        {
+            var pageText = await _urlTextFetcher.TryFetchTextAsync(hpUrl, ct);
+            if (pageText is not null)
+            {
+                facts.Add($"[HPリンクの内容: {hpUrl}]\n{pageText}");
+            }
+        }
+
+        // 任意: 資料ファイル。プレーンテキストはテキストとして入力に含め、画像・PDFはLLMへそのまま渡す
+        var attachments = new List<AttachmentInput>();
+        if (file is { Length: > 0 })
+        {
+            var contentType = file.ContentType.ToLowerInvariant();
+            await using var fileStream = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await fileStream.CopyToAsync(buffer, ct);
+            var bytes = buffer.ToArray();
+
+            if (contentType.StartsWith("text/"))
+            {
+                facts.Add($"[資料ファイル: {file.FileName}]\n{System.Text.Encoding.UTF8.GetString(bytes)}");
+            }
+            else if (contentType.StartsWith("image/") || contentType == "application/pdf")
+            {
+                attachments.Add(new AttachmentInput(bytes, contentType));
+            }
+        }
+
         const string systemPrompt = """
             あなたは営業担当者向け人脈管理アプリのAIアシスタントです。
-            以下の「対象人物の実データ」と「作成要件」をもとに、そのまま送信できる紹介文・メッセージの下書きを1つ作成してください。
+            以下の「対象人物の実データ」（利用者が任意で添付したHPリンクの本文や資料ファイルを含む）と「作成要件」をもとに、
+            そのまま送信できる紹介文・メッセージの下書きを1つ作成してください。
 
             重要なルール:
             - 実データに存在しない事実（会社名・実績・共通の知人・過去のやり取りなど）を創作してはいけません。
@@ -82,6 +122,48 @@ public class IntroLetterService
             【補足条件】{(string.IsNullOrWhiteSpace(additionalNotes) ? "なし" : additionalNotes)}
             """;
 
-        return await _llm.ComposeTextAsync(systemPrompt, userPrompt, ct);
+        var message = await _llm.ComposeTextAsync(systemPrompt, userPrompt, attachments, ct);
+
+        await SaveHistoryAsync(ownerUserId, orgId, targetPersonId, requirement, tone, lengthHint, additionalNotes, hpUrl, file?.FileName, message, ct);
+
+        return message;
     }
+
+    private async Task SaveHistoryAsync(
+        Guid ownerUserId, Guid orgId, Guid targetPersonId, string requirement, string? tone, string? lengthHint,
+        string? additionalNotes, string? hpUrl, string? attachedFileName, string generatedMessage, CancellationToken ct)
+    {
+        // 履歴の保存に失敗しても文面の生成自体は返せるよう、ここだけ独立してtry-catchする。
+        try
+        {
+            _db.IntroLetterRequests.Add(new IntroLetterRequest
+            {
+                RequestId = Guid.NewGuid(),
+                OrgId = orgId,
+                OwnerUserId = ownerUserId,
+                TargetPersonId = targetPersonId,
+                Requirement = requirement,
+                Tone = tone,
+                LengthHint = lengthHint,
+                AdditionalNotes = additionalNotes,
+                HpUrl = hpUrl,
+                AttachedFileName = attachedFileName,
+                GeneratedMessage = generatedMessage,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "紹介文作成の履歴保存に失敗しました");
+        }
+    }
+
+    public async Task<List<IntroLetterRequest>> GetHistoryAsync(Guid ownerUserId, CancellationToken ct) =>
+        await _db.IntroLetterRequests
+            .Include(r => r.TargetPerson)
+            .Where(r => r.OwnerUserId == ownerUserId)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(50)
+            .ToListAsync(ct);
 }

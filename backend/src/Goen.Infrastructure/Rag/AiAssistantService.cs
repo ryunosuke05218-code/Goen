@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Goen.Domain.Entities;
 using Goen.Infrastructure.ExternalAi;
 using Goen.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -73,8 +74,45 @@ public class AiAssistantService
 
         var answer = await ComposeAnswerAsync(instruction, hints, routes, ct);
 
+        await SaveHistoryAsync(ownerUserId, orgId, instruction, answer, routes, hints, ct);
+
         return new AssistantResult(answer, routes, hints);
     }
+
+    private async Task SaveHistoryAsync(
+        Guid ownerUserId, Guid orgId, string instruction, string answer,
+        List<AssistantRoute> routes, List<AssistantHint> hints, CancellationToken ct)
+    {
+        // 履歴の保存に失敗しても質問への回答自体は返せるよう、ここだけ独立してtry-catchする。
+        try
+        {
+            _db.AiAssistantQueries.Add(new AiAssistantQuery
+            {
+                QueryId = Guid.NewGuid(),
+                OrgId = orgId,
+                OwnerUserId = ownerUserId,
+                Instruction = instruction,
+                Answer = answer,
+                RoutesJson = JsonSerializer.Serialize(routes, HistoryJsonOptions),
+                HintsJson = JsonSerializer.Serialize(hints, HistoryJsonOptions),
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI指示の履歴保存に失敗しました");
+        }
+    }
+
+    public async Task<List<AiAssistantQuery>> GetHistoryAsync(Guid ownerUserId, CancellationToken ct) =>
+        await _db.AiAssistantQueries
+            .Where(q => q.OwnerUserId == ownerUserId)
+            .OrderByDescending(q => q.CreatedAt)
+            .Take(50)
+            .ToListAsync(ct);
+
+    private static readonly JsonSerializerOptions HistoryJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private async Task<List<AssistantHint>> SearchHintsAsync(Guid ownerUserId, string instruction, CancellationToken ct)
     {
@@ -126,7 +164,7 @@ public class AiAssistantService
 
         try
         {
-            var text = await _llm.ComposeTextAsync(systemPrompt, instruction, ct);
+            var text = await _llm.ComposeTextAsync(systemPrompt, instruction, cancellationToken: ct);
             var json = LenientJson.Parse(text);
             var company = GetString(json, "targetCompanyName");
             var person = GetString(json, "targetPersonName");
@@ -312,7 +350,7 @@ public class AiAssistantService
 
         try
         {
-            return await _llm.ComposeTextAsync(systemPrompt, userPrompt, ct);
+            return await _llm.ComposeTextAsync(systemPrompt, userPrompt, cancellationToken: ct);
         }
         catch (Exception ex)
         {

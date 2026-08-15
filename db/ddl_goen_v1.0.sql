@@ -116,12 +116,16 @@ CREATE TABLE m_prefecture (
 );
 
 -- 職種マスタ（要件Q-011で決定。人脈図（F-006）の業種＞職種＞会社名＞人物の階層グルーピングに使用）
+-- industry_codeは職種追加画面（F-030）で選択/新規作成した業種への紐付け。
+-- 人物→職種→業種の経路で「業種別」グルーピングを導出する（companies.industry_codeは入力経路がなく実質未使用）。
 CREATE TABLE m_occupation_type (
   occupation_code varchar(10) PRIMARY KEY,
   occupation_name text NOT NULL,
+  industry_code   varchar(10) REFERENCES m_industry(industry_code),
   sort_order      integer NOT NULL DEFAULT 0,
   is_active       boolean NOT NULL DEFAULT true
 );
+CREATE INDEX ix_occupation_type_industry ON m_occupation_type (industry_code);
 
 -- =====================================================================
 -- 2. 準マスタ ※共通カラムあり・履歴あり
@@ -269,8 +273,6 @@ CREATE TABLE persons (
   department           text,
   job_title            text,
   occupation_code      varchar(10) REFERENCES m_occupation_type(occupation_code), -- 職種（役職job_titleとは別概念）。人脈図(F-006)の階層グルーピングに使用
-  importance           smallint NOT NULL CHECK (importance BETWEEN 1 AND 5) DEFAULT 3,
-  importance_is_manual boolean NOT NULL DEFAULT false,
   visibility           text NOT NULL CHECK (visibility IN ('private','team','org')) DEFAULT 'private',
   first_met_at         date,
   met_place            text, -- どこで会ったか（例：「〇〇異業種交流会」）。RAGチャンク(profile)にも含める
@@ -680,6 +682,37 @@ CREATE INDEX ix_briefs_person_id ON briefs (person_id, generated_at DESC);
 CREATE TRIGGER trg_briefs_touch BEFORE UPDATE ON briefs
   FOR EACH ROW EXECUTE FUNCTION fn_touch();
 
+-- 4.6 ai_assistant_queries（AI指示の質問・回答履歴：追記のみ・履歴テーブルなし）
+CREATE TABLE ai_assistant_queries (
+  query_id      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id        uuid NOT NULL REFERENCES organizations(org_id),
+  owner_user_id uuid NOT NULL REFERENCES users(user_id),
+  instruction   text NOT NULL,
+  answer        text NOT NULL,
+  routes        jsonb NOT NULL DEFAULT '[]'::jsonb, -- AssistantRoute[]（自分→…→対象人物の紹介チェーン）
+  hints         jsonb NOT NULL DEFAULT '[]'::jsonb, -- AssistantHint[]（RAG検索でヒットした関連人物）
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_ai_assistant_queries_owner_created ON ai_assistant_queries (owner_user_id, created_at DESC);
+
+-- 4.7 intro_letter_requests（紹介文作成の依頼・生成結果履歴：追記のみ・履歴テーブルなし）
+CREATE TABLE intro_letter_requests (
+  request_id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id             uuid NOT NULL REFERENCES organizations(org_id),
+  owner_user_id      uuid NOT NULL REFERENCES users(user_id),
+  target_person_id   uuid NOT NULL REFERENCES persons(person_id) ON DELETE CASCADE,
+  requirement        text NOT NULL,
+  tone               text,
+  length_hint        text,
+  additional_notes   text,
+  hp_url             text,
+  attached_file_name text, -- 添付ファイルは保存せずファイル名のみ記録（履歴は再閲覧用途のみのため）
+  generated_message  text NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_intro_letter_requests_owner_created ON intro_letter_requests (owner_user_id, created_at DESC);
+CREATE INDEX ix_intro_letter_requests_target_person ON intro_letter_requests (target_person_id, created_at DESC);
+
 -- =====================================================================
 -- 5. 参照最適化テーブル（_read）※更新日時のみ・履歴なし
 -- =====================================================================
@@ -696,7 +729,6 @@ CREATE TABLE persons_read (
   occupation_name text,
   pref_name       text,
   job_title       text,
-  importance      smallint NOT NULL,
   summary         text,
   issues          text,
   tags            jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -707,7 +739,7 @@ CREATE TABLE persons_read (
   created_at      timestamptz, -- 元のpersons.created_atを非正規化（F-003の登録順ソート用。結合を避けるため）
   refreshed_at    timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_persons_read_owner_importance ON persons_read (owner_user_id, importance DESC, last_contact_at DESC);
+CREATE INDEX ix_persons_read_owner_last_contact ON persons_read (owner_user_id, last_contact_at DESC);
 CREATE INDEX ix_persons_read_org_visibility ON persons_read (org_id, visibility);
 CREATE INDEX ix_persons_read_search_text ON persons_read USING gin (search_text gin_trgm_ops);
 
