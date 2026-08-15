@@ -22,6 +22,12 @@ final personContactsProvider = FutureProvider.autoDispose.family<List<ContactIte
   return repo.listContacts(personId);
 });
 
+// F-038: 既存のAIリサーチ結果（未生成の場合はnull）
+final personResearchProvider = FutureProvider.autoDispose.family<PersonResearch?, String>((ref, personId) async {
+  final repo = ref.watch(personRepositoryProvider);
+  return repo.getResearch(personId);
+});
+
 // F-033: 情報充実度に応じた入力促進ヒント。閉じた人物IDの集合をアプリ再起動まで保持する（永続化はしない）
 class _InfoHintDismissalNotifier extends Notifier<Set<String>> {
   @override
@@ -144,6 +150,7 @@ class PersonDetailScreen extends ConsumerWidget {
                         ],
                       ),
               ),
+              _ResearchSection(personId: personId, companyName: person.companyName),
               if (person.aiBusiness != null) _SectionCard(title: '事業内容', child: Text(person.aiBusiness!)),
               if (person.aiIssues != null) _SectionCard(title: '抱える課題', child: Text(person.aiIssues!)),
               if (person.aiHobby != null) _SectionCard(title: '趣味・人柄', child: Text(person.aiHobby!)),
@@ -537,6 +544,128 @@ class _InfoRichnessHint extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// F-038 AI自動リサーチ: 氏名・会社名からAIがWeb検索し、公開情報の参考情報（要約＋出典）を表示する。
+// 既存のAI要約（F-010）とは異なり公開Web情報が根拠のため、出典を必ず表示し「参考情報」であることを明示する。
+class _ResearchSection extends ConsumerStatefulWidget {
+  const _ResearchSection({required this.personId, required this.companyName});
+
+  final String personId;
+  final String? companyName;
+
+  @override
+  ConsumerState<_ResearchSection> createState() => _ResearchSectionState();
+}
+
+class _ResearchSectionState extends ConsumerState<_ResearchSection> {
+  bool _isGenerating = false;
+
+  Future<void> _generate() async {
+    setState(() => _isGenerating = true);
+    try {
+      await ref.read(personRepositoryProvider).generateResearch(widget.personId);
+      ref.invalidate(personResearchProvider(widget.personId));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AIリサーチに失敗しました: $e')));
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final researchAsync = ref.watch(personResearchProvider(widget.personId));
+    final canGenerate = widget.companyName != null && widget.companyName!.isNotEmpty;
+
+    return _SectionCard(
+      title: 'AIリサーチ（参考情報）',
+      trailing: researchAsync.value == null
+          ? null
+          : IconButton(
+              icon: const Icon(Icons.refresh, size: 20),
+              tooltip: 'AIリサーチを更新する',
+              onPressed: _isGenerating || !canGenerate ? null : _generate,
+            ),
+      child: researchAsync.when(
+        loading: () => const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator())),
+        error: (e, _) => Text('取得に失敗しました: $e', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        data: (research) {
+          if (research == null) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '氏名・会社名をもとにAIがWebを検索し、会社概要や経歴・ニュース等の公開情報を参考情報として要約します。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                if (!canGenerate)
+                  const Text('会社名が未設定のため実行できません（同姓同名の誤認識を避けるため）。',
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  icon: _isGenerating
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.travel_explore_outlined),
+                  label: const Text('AIでリサーチする（F-038）'),
+                  onPressed: _isGenerating || !canGenerate ? null : _generate,
+                ),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 14, color: Theme.of(context).colorScheme.outline),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        '公開されているWeb情報をもとにAIが作成した参考情報です。誤りを含む可能性があるためご自身でご確認ください。',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(research.summary),
+              if (research.sources.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text('出典', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey)),
+                const SizedBox(height: 4),
+                for (final source in research.sources)
+                  InkWell(
+                    onTap: () => _openLink(context, source.url),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        '・${source.title}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }

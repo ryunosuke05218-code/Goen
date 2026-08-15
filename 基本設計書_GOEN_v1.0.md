@@ -3,10 +3,10 @@
 | 項目 | 内容 |
 |---|---|
 | プロジェクト名 | GOEN（HUMAN NETWORK OS／人脈OS） |
-| 文書バージョン | 1.13 |
+| 文書バージョン | 1.15 |
 | 作成日 | 2026/07/25 |
 | 作成者 | 阿部竜之介 |
-| 対象要件 | 要件定義書 v1.15、テーブル設計書 v1.11 |
+| 対象要件 | 要件定義書 v1.18、テーブル設計書 v1.12 |
 
 ## 改訂履歴
 
@@ -26,6 +26,8 @@
 | 1.11 | 2026/08/11 | Eight・HubSpotとの差別化方針を受け、F-031〜F-033を設計に追加（要件定義書v1.14）。うちF-032（AI要約の参照元表示）の裏付けとなる`RagChunkBuilder.BuildCardAsync`の実装を先行して修正：AIカルテ生成時に保存される`InputSourcesJson`（HPリンク・資料ファイルの参照元）が、これまでRAGチャンク化の対象から漏れていた（要約本文のみが埋め込まれ、参照元は`ai_person_cards`に保存されるだけでRAG検索・AI指示からは参照不可能だった）ため、参照元情報を独立した2つ目のチャンク（`chunk_no=1`）として追加で埋め込むよう修正。要約本文と同じチャンクに混ぜないのは、`AiAssistantService`がRAGヒントをLLMへ渡す際に本文を120文字へ切り詰めるため、混在させると参照元情報が埋もれて欠落するのを避けるため。F-031（AI指示→紹介文作成の引き継ぎ）・F-033（入力促進）は本バージョン時点ではUI・API側は未実装（設計のみ）。7.6節を更新 | 阿部 |
 | 1.12 | 2026/08/15 | F-031・F-033のUI実装を追加（v1.11で設計のみとしていた残り分）。F-031: AI指示画面（S-017）の関連人物ヒントに「この人への紹介文を作成」ボタンを追加し、`go_router`の`extra`（`IntroLetterPrefill`：`personId`/`personName`/`requirement`下書き）経由で紹介文作成画面（S-014）へ遷移、対象人物・要件欄を入力済み状態で開始できるようにした。要件欄の下書きはヒントの提案理由・抜粋をテンプレート文言で結合したもの。F-033: 人物カルテ（S-006）に、AI要約未生成かつメモ・接点履歴が空の場合のみ表示する入力促進ヒントを追加（`Notifier<Set<String>>`による人物ID単位の非表示状態管理、Riverpod 3.x系では`StateProvider`が廃止されているため）。いずれもバックエンドAPIの追加は不要（既存のAI指示応答・カルテ取得APIが返す情報のみで完結） | 阿部 |
 | 1.13 | 2026/08/15 | 3件のUI改善・新機能を実装。①人脈マップ（S-009）を開いた際に「自分」が画面中央に来るよう`TransformationController`で初期スクロール位置を計算し、業種・職種・会社名の全グループを折りたたんだ状態で開始するよう変更（従来は全展開・スクロール位置は既定の左上のままだった）。②AI指示（S-017、F-025）の経路・関連人物ヒントに、リスト表示に加えて図表示（`AiResultDiagram`）を追加し`SegmentedButton`で切替可能にした。図は人脈マップと同じ「自分を中心に左右2方向・分岐ごとに固定色」の視覚言語を踏襲し、経路は実線、ヒントは点線（`PathMetric`によるダッシュ描画）で区別する。③F-034（AI指示・紹介文作成の質問／回答履歴）を新設。`ai_assistant_queries`／`intro_letter_requests`の2テーブルを追加し（`migrations/0009_ai_assistant_and_intro_letter_history.sql`、テーブル設計書v1.11）、`AiAssistantService.AskAsync`・`IntroLetterService.GenerateAsync`それぞれの応答生成後に`owner_user_id`単位で履歴を保存（保存失敗は個別にtry-catchし主機能をブロックしない）。`GET /api/ai-assistant/history`・`GET /api/intro-letters/history`を新設し、各画面のAppBarから履歴一覧→詳細（読み返し専用、入力フォームへの復元なし）へ遷移できるようにした。AI指示の履歴詳細は現在の相談結果と同じ`AssistantResultView`（旧`_ResultView`を公開化）を再利用し、リスト／図表示の切替も履歴側で使える。3.1節・6章・7章・8章・9章を更新 | 阿部 |
+| 1.14 | 2026/08/15 | F-038（AI自動リサーチ）を新設・実装。氏名・会社名からAIがWeb検索し公開情報の参考情報を生成する機能で、既存のAI要約（F-010）等とは異なりユーザー自身のデータではなく公開Web情報を根拠にする。`IWebSearchService`（検索API、要件I-006）を新設し、プロバイダ未選定のため`MockWebSearchService`（常に0件を返す）のみ登録。`PersonResearchService`（`Goen.Infrastructure/Research/`）が検索結果をLLM（既存の`ILlmService.ComposeTextAsync`を流用）に渡し、「検索結果にない事実の創作禁止」「同姓同名の可能性への言及」を強制するプロンプトで要約を生成する。検索結果0件時はLLMを呼ばず「見つからなかった」旨を固定文で返す（`AiAssistantService.ComposeAnswerAsync`と同じ考え方）。結果は`person_research_results`（人物1件につき最新1件、`migrations/0010_person_research_results.sql`、テーブル設計書v1.12）に保存。`POST /api/persons/{id}/research/generate`・`GET /api/persons/{id}/research`を新設し、会社名未設定の人物は400を返す（同姓同名誤認識を避けるため）。人物カルテ（S-006）にAI要約と同様の手動トリガー方式のセクションを追加し、生成結果には出典一覧と「公開Web情報をもとにした参考情報」の注記を常時表示する。3.1節・6章・7章・8章・9章を更新 | 阿部 |
+| 1.15 | 2026/08/16 | Q-004を解消し2件を実装。①`IWebSearchService`の実装として`TavilyWebSearchService`（Tavily Search API、`POST https://api.tavily.com/search`）を追加。`WebSearchOptions`（`WebSearch:Provider`/`WebSearch:ApiKey`）を新設し、Provider≠mockのときのみ`AddHttpClient<IWebSearchService, TavilyWebSearchService>()`を登録する（他のAIプロバイダ設定と同じmock/real切替パターン）。②音声認識（I-002）を`LlmSpeechToTextService`で実装。名刺OCR（`LlmVisionOcrService`）と同じ考え方で、専用の音声認識APIを使わず`Ai:Chat`のマルチモーダルLLMへ音声をそのまま渡す。OpenAI互換のchat completionsにGeminiが対応する`input_audio`コンテンツパート（`{"type":"input_audio","input_audio":{"data":Base64,"format":"wav"等}}`）を新設し、MIMEタイプから`format`値へマッピングする。`ISpeechToTextService.TranscribeAsync`に`mimeType`引数を追加し、`PersonsController.UploadVoiceMemo`から`IFormFile.ContentType`を渡すよう変更。いずれもAi:Chat:Providerの条件分岐に相乗りする形で登録し、APIキー未設定時は既存のモック実装にフォールバックする。3.1節・6章・9章を更新 | 阿部 |
 
 ---
 
@@ -88,8 +90,9 @@ graph TD
 | チャットLLM | `MockLlmService`（固定ダミー応答） | Ollama（`gemma3:4b`） | Gemini（`gemini-2.5-flash`） |
 | 埋め込み | `MockEmbeddingService`（決定的な疑似ベクトル） | Ollama（`multilingual-e5-large-instruct:q8_0`） | OpenAI（`text-embedding-3-small`） |
 | OCR（名刺） | `MockOcrService`（固定ダミー応答） | `LlmVisionOcrService`（Ai:Chat設定を流用し`gemma3:4b`のマルチモーダル入力で読み取り） | Ai:Chat設定を流用し`gemini-2.5-flash`で読み取り想定（専用OCR APIは不要） |
-| 音声認識 | ダミー実装（固定値） | 同左（未選定のため） | 未選定（Q-004） |
-| 切替方法 | 既定値（`Ai:Chat:Provider`/`Ai:Embedding:Provider` = `mock`） | User Secretsに`ollama`を設定 | User Secretsに`gemini`/`openai`を設定 |
+| 音声認識 | `MockSpeechToTextService`（固定ダミー応答） | `LlmSpeechToTextService`（Ai:Chat設定を流用し`gemma3:4b`の音声入力で文字起こし） | Ai:Chat設定を流用し`gemini-2.5-flash`の`input_audio`で文字起こし想定（専用音声認識APIは不要） |
+| Web検索（F-038 AI自動リサーチ） | `MockWebSearchService`（常に0件） | 同左（Tavilyは本番想定のみ、開発は0件のままでも支障なし） | `TavilyWebSearchService`（Tavily Search API） |
+| 切替方法 | 既定値（`Ai:Chat:Provider`/`Ai:Embedding:Provider`/`WebSearch:Provider` = `mock`） | User Secretsに`ollama`を設定 | User Secretsに`gemini`/`openai`/`tavily`を設定 |
 | コスト | 無料 | 無料（ローカル実行、要GPU/CPUリソース） | 従量課金（APIコール数・トークン数に依存） |
 | 応答速度 | 即時 | 数秒〜1分程度（ローカル推論、初回モデルロードは特に遅い） | 数秒程度（クラウドAPI） |
 
@@ -346,7 +349,7 @@ sequenceDiagram
 | S-003 | 名刺撮影 | `/persons/new/card` | 実装済み（OCRはマルチモーダルチャットLLM、開発環境はgemma3:4b） |
 | S-004 | 登録内容確認 | `/persons/new/confirm` | 実装済み。音声文字起こし入力とAIによる登録項目自動反映（F-007拡張）は未実装（設計のみ） |
 | S-005 | 音声メモ入力 | `/persons/:id/voice-memo` | テキスト代替のみ実装 |
-| S-006 | 人物カルテ | `/persons/:id` | 実装済み。AI要約生成時のHPリンク・資料ファイル追加入力（F-010拡張）は未実装（設計のみ） |
+| S-006 | 人物カルテ | `/persons/:id` | 実装済み。AI要約生成時にHPリンク・資料ファイルを任意で追加入力できる（F-010拡張）。氏名・会社名からAIがWeb検索して参考情報を生成するAIリサーチに対応（F-038） |
 | S-007 | 人物一覧 | `/persons` | 実装済み。ソート順切替・総登録人数表示（F-003拡張）は未実装（設計のみ） |
 | S-008 | 検索 | `/search` | 簡易版（部分一致）のみ |
 | S-009 | 人脈マップ（自分中心） | `/network-map` | 業種＞職種＞会社名＞人物のツリー形式で実装済み（AI不使用、7.4節）。業種は職種に紐づく業種を優先して用いる（F-030、7.6節）。他ユーザー閲覧（F-027、7.7節）も実装済み |
@@ -373,8 +376,10 @@ Phase2以降の画面（S-010〜S-013、S-016）は未実装。
 | `POST /api/persons/ocr-draft` | 名刺OCR（F-007）。音声文字起こしテキストが併せて送信された場合はOCR結果と統合する（未実装） | チャットLLM（マルチモーダル、`LlmVisionOcrService`） |
 | `POST /api/persons/{id}/contacts` | 接点登録（F-011、日時・場所・メモ入力可） | なし |
 | `PUT /api/persons/{id}/contacts/{contactId}` | 接点メモの編集（F-011） | なし |
-| `POST /api/persons/{id}/contacts/{id}/voice-memo` | 音声文字起こし（F-009） | ダミー |
-| `POST /api/persons/{id}/cards/generate` | AIカルテ生成（F-010）。接点メモ全件・前回世代の要約・HPリンク／ファイル（任意、未実装）を入力に含める | チャットLLM |
+| `POST /api/persons/{id}/contacts/{id}/voice-memo` | 音声文字起こし（F-009） | チャットLLM（マルチモーダル、音声入力） |
+| `POST /api/persons/{id}/cards/generate` | AIカルテ生成（F-010）。接点メモ全件・前回世代の要約・HPリンク／ファイル（任意）を入力に含める | チャットLLM |
+| `POST /api/persons/{id}/research/generate` | AI自動リサーチ（F-038）。氏名・会社名でWeb検索し、公開情報の参考情報を出典付きで生成・保存する。会社名未設定の場合は400を返す | Web検索（ダミー実装）＋チャットLLM |
+| `GET /api/persons/{id}/research` | AI自動リサーチの既存結果取得（未生成の場合はnull） | なし |
 | `GET /api/persons/{id}/relations/suggest` | AI関係提案（F-005） | チャットLLM |
 | `POST /api/persons/{id}/relations` | 関係確定登録（F-005、手動／AI提案共通） | なし |
 | `GET /api/persons/{id}/network` | 人物起点グラフ取得（F-006、業種＞職種＞会社名＞人物のツリー形式へ変更予定・未実装） | なし |
@@ -415,7 +420,7 @@ Docker／ネイティブPostgreSQLのセットアップ、Ollamaのインスト�
 
 | ID | 内容 | 関連 |
 |---|---|---|
-| B-001 | 音声認識サービスの選定（要件Q-004、未解消部分）。OCRはチャットLLM（マルチモーダル）流用で暫定解消したが、精度・コスト面で専用OCR APIへの切替も選択肢として残る | 3.1 |
+| B-001 | **解消**（Q-004）：音声認識サービスの選定。OCR（`LlmVisionOcrService`）と同じ方式でチャットLLMのマルチモーダル音声入力（`LlmSpeechToTextService`）を流用する形に確定。精度・コスト面で専用の音声認識APIへの切替も将来の選択肢として残る | 2.3 |
 | B-002 | 埋め込みモデルを本番（text-embedding-3-small）へ切り替える際の再埋め込みジョブの実装（現状は手順のみ定義、自動化スクリプト未実装） | 4.4 |
 | B-003 | AI指示の経路探索結果に応じて人脈マップ上の該当ノードのみを絞り込み表示するPhase2機能（`routes`/`hints`は既に人物IDを含むため、フロント側のフィルタ実装のみで対応できる見込み） | 6 |
 | B-004 | RAGインデックスワーカーの障害監視・アラート（現状はログ出力のみ） | 5.2 |

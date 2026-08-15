@@ -3,7 +3,7 @@
 | 項目 | 内容 |
 |---|---|
 | プロジェクト名 | GOEN（HUMAN NETWORK OS／人脈OS） |
-| 文書バージョン | 1.11 |
+| 文書バージョン | 1.12 |
 | 作成日 | 2026/07/20 |
 | 最終更新日 | 2026/08/15 |
 | 作成者 | 阿部竜之介 |
@@ -25,6 +25,7 @@
 | 1.9 | 2026/08/09 | 重要度を廃止。`persons.importance`／`persons.importance_is_manual`／`persons_read.importance`列を削除し（`migrations/0007_drop_importance.sql`）、関連インデックス`ix_persons_read_owner_importance`を`ix_persons_read_owner_last_contact`（`owner_user_id, last_contact_at DESC`）に置き換え。7.6節・7.16節・5.1〜5.3節・8章・9章のサンプルSQLを更新 | 阿部 |
 | 1.10 | 2026/08/09 | 職種追加・業種／職種管理機能（F-030）を追加。`m_occupation_type`に`industry_code`（`m_industry`への任意FK）と`ix_occupation_type_industry`インデックスを新設（`migrations/0008_occupation_industry_link.sql`）。`m_industry`・`m_occupation_type`はいずれも静的マスタのため`h_*`履歴テーブルの列同期は不要。5.1節（`persons_read.industry_name`の導出元を職種経由に変更）・7.21節を更新 | 阿部 |
 | 1.11 | 2026/08/15 | F-034（AI指示・紹介文作成の質問／回答履歴）を追加。`ai_assistant_queries`（AI指示1回ごとの質問・回答・経路・ヒントをJSONBで保存）と`intro_letter_requests`（紹介文作成1回ごとの依頼条件・生成文面を保存、対象人物への`ON DELETE CASCADE`付きFK）を新設（`migrations/0009_ai_assistant_and_intro_letter_history.sql`）。いずれも`briefs`と同じ追記型ログでありUPDATE/DELETEを行わないため`h_*`履歴テーブルは持たない。6章・7.20節を更新 | 阿部 |
+| 1.12 | 2026/08/15 | F-038（AI自動リサーチ）を追加。`person_research_results`（氏名・会社名から検索した公開Web情報の要約と出典を人物1件につき最新1件保持）を新設（`migrations/0010_person_research_results.sql`）。`ai_person_cards`と異なり公開Web情報が根拠のため`sources`列を必須とし、世代管理は行わず上書き方式とした。6章・7.20節を更新 | 阿部 |
 
 ---
 
@@ -332,6 +333,7 @@ erDiagram
 | 18 | ④ 追記型 | `briefs` | 商談前ブリーフ | 〜200,000 | － | － |
 | 18a | ④ 追記型 | `ai_assistant_queries` | AI指示の質問・回答履歴 | 〜1,000,000 | － | － |
 | 18b | ④ 追記型 | `intro_letter_requests` | 紹介文作成の依頼・生成結果履歴 | 〜500,000 | － | － |
+| 18c | ④ 追記型 | `person_research_results` | AI自動リサーチ結果（人物1件につき最新1件） | 〜300,000 | － | － |
 | 19 | ⑤ 参照最適化 | `persons_read` | 人物参照モデル | 〜300,000 | － | － |
 | 20 | ⑥ 検索 | `rag_chunks` | RAGチャンク | 〜5,000,000 | － | － |
 | 21 | ⑥ 検索 | `rag_index_queue` | 埋め込み再生成キュー | 〜10,000 | － | － |
@@ -697,6 +699,7 @@ pgvectorへの読み書きは追加のNuGetパッケージ（`Pgvector.EntityFra
 | `briefs` | 商談前ブリーフ（F-014）。`person_id`、生成日時、要点、質問候補、提案候補、引用元URL配列を保持。追記型 |
 | `ai_assistant_queries` | AI指示（F-025）1回ごとの質問文・回答文・経路（`routes`）・関連人物ヒント（`hints`、いずれもJSONB）を`owner_user_id`単位で保持。人脈図画面のAI指示履歴（F-034）で参照。追記型 |
 | `intro_letter_requests` | 紹介文作成（F-026）1回ごとの対象人物・要件・トーン等の条件・生成文面を`owner_user_id`単位で保持。添付ファイルはファイル名のみ記録（実体は保存しない）。紹介文作成の履歴（F-034）で参照。追記型 |
+| `person_research_results` | AI自動リサーチ（F-038）の結果。氏名・会社名から検索した公開Web情報の要約（`summary`）と出典（`sources`、`[{"title","url"}]`のJSONB配列）を人物1件につき最新1件のみ保持。`ai_person_cards`と異なり公開Web情報が根拠のため`sources`は必須、世代管理は行わず再実行のたびに上書き |
 | `auth_tokens` | リフレッシュトークン。ハッシュ値・端末情報・有効期限・失効日時を保持 |
 | `ai_api_logs` | 外部AI API呼出ログ。API種別、モデル、トークン数、コスト、応答時間、成否。リスクR-003のコスト監視に使用 |
 | `import_jobs` | CSVインポートジョブ。ファイル名、件数、成功／失敗件数、エラー明細。移行（I-007の現行人脈管理グラフサイト、F-024のeightからのCSV移行）に共通で使用 |

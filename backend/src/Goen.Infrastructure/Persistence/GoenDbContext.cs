@@ -29,6 +29,7 @@ public class GoenDbContext : DbContext
     public DbSet<Prefecture> Prefectures => Set<Prefecture>();
     public DbSet<AiAssistantQuery> AiAssistantQueries => Set<AiAssistantQuery>();
     public DbSet<IntroLetterRequest> IntroLetterRequests => Set<IntroLetterRequest>();
+    public DbSet<PersonResearchResult> PersonResearchResults => Set<PersonResearchResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -172,6 +173,14 @@ public class GoenDbContext : DbContext
             e.ToTable("intro_letter_requests");
             e.HasKey(x => x.RequestId);
             e.HasOne(x => x.TargetPerson).WithMany().HasForeignKey(x => x.TargetPersonId);
+        });
+
+        modelBuilder.Entity<PersonResearchResult>(e =>
+        {
+            e.ToTable("person_research_results");
+            e.HasKey(x => x.PersonId);
+            e.Property(x => x.SourcesJson).HasColumnName("sources").HasColumnType("jsonb");
+            e.HasOne(x => x.Person).WithOne().HasForeignKey<PersonResearchResult>(x => x.PersonId);
         });
     }
 }

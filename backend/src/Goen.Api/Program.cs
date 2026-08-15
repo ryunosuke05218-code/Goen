@@ -4,6 +4,7 @@ using Goen.Infrastructure.Messaging;
 using Goen.Infrastructure.Persistence;
 using Goen.Infrastructure.QrCode;
 using Goen.Infrastructure.Rag;
+using Goen.Infrastructure.Research;
 using Goen.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<AiChatOptions>(builder.Configuration.GetSection(AiChatOptions.SectionName));
 builder.Services.Configure<AiEmbeddingOptions>(builder.Configuration.GetSection(AiEmbeddingOptions.SectionName));
+builder.Services.Configure<WebSearchOptions>(builder.Configuration.GetSection(WebSearchOptions.SectionName));
 
 // ---- DB (PostgreSQL / EF Core) ----
 builder.Services.AddDbContext<GoenDbContext>(options =>
@@ -61,8 +63,17 @@ builder.Services.AddScoped<PersonReadSyncService>();
 builder.Services.AddScoped<MasterDataService>();
 builder.Services.AddScoped<NetworkGraphService>();
 
-// 音声認識は外部サービス未選定（要件Q-004）のためダミー実装を登録する。
-builder.Services.AddScoped<ISpeechToTextService, MockSpeechToTextService>();
+// F-038 AI自動リサーチ: Web検索（I-006）はTavilyを使用する。ApiKey未設定時はモック（常に0件）にフォールバックする。
+var webSearchOptions = builder.Configuration.GetSection(WebSearchOptions.SectionName).Get<WebSearchOptions>() ?? new WebSearchOptions();
+if (!string.Equals(webSearchOptions.Provider, "mock", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddHttpClient<IWebSearchService, TavilyWebSearchService>();
+}
+else
+{
+    builder.Services.AddScoped<IWebSearchService, MockWebSearchService>();
+}
+builder.Services.AddScoped<PersonResearchService>();
 
 // F-010/F-026: AIカルテ生成・紹介文作成時のHPリンク取得用。AIプロバイダがmockでもIHttpClientFactoryを使えるよう常に登録する。
 builder.Services.AddHttpClient();
@@ -80,11 +91,14 @@ if (!string.Equals(aiChatOptions.Provider, "mock", StringComparison.OrdinalIgnor
     // F-007 名刺OCR（I-001）: マルチモーダル対応のチャットLLM（gemma3等）に名刺画像を読み取らせる。
     // 専用のOCR APIを選定していない開発環境でも、Ai:Chat設定を流用してそのまま実用できる。
     builder.Services.AddHttpClient<IOcrService, LlmVisionOcrService>();
+    // F-009 音声メモの文字起こし（I-002）: OCRと同様、専用の音声認識APIを選定せずマルチモーダルLLMを流用する。
+    builder.Services.AddHttpClient<ISpeechToTextService, LlmSpeechToTextService>();
 }
 else
 {
     builder.Services.AddScoped<ILlmService, MockLlmService>();
     builder.Services.AddScoped<IOcrService, MockOcrService>();
+    builder.Services.AddScoped<ISpeechToTextService, MockSpeechToTextService>();
 }
 
 var aiEmbeddingOptions = builder.Configuration.GetSection(AiEmbeddingOptions.SectionName).Get<AiEmbeddingOptions>() ?? new AiEmbeddingOptions();

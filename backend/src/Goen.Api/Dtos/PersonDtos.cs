@@ -143,3 +143,9 @@ public record ContactItem(
 public record VoiceMemoResponse(string TranscriptText, decimal Confidence);
 
 public record GenerateCardResponse(string Summary, string? Business, string? Issues, string? Hobby, int Generation);
+
+// F-038 AI自動リサーチ: 氏名・会社名をもとにAIがWeb検索した参考情報。ai_person_cardsと異なり
+// 公開Web情報が根拠のため、出典（Sources）を必ず伴う
+public record PersonResearchSourceResponse(string Title, string Url);
+
+public record PersonResearchResponse(string Summary, IReadOnlyList<PersonResearchSourceResponse> Sources, DateTimeOffset GeneratedAt);

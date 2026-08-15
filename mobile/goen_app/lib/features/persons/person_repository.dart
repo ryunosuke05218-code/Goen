@@ -206,6 +206,24 @@ class PersonRepository {
     );
   }
 
+  // F-038 AI自動リサーチ: 既存の生成結果を取得する（未生成の場合はnull）
+  Future<PersonResearch?> getResearch(String personId) async {
+    final response = await _dio.get('/api/persons/$personId/research');
+    final data = response.data;
+    if (data is! Map<String, dynamic>) return null;
+    return PersonResearch.fromJson(data);
+  }
+
+  // F-038: 氏名・会社名をもとにAIがWeb検索し、参考情報を生成する（既存があれば上書き）
+  Future<PersonResearch> generateResearch(String personId) async {
+    // Web検索＋ローカルLLM呼び出しを伴うため長めのタイムアウトとする
+    final response = await _dio.post(
+      '/api/persons/$personId/research/generate',
+      options: Options(sendTimeout: const Duration(seconds: 120), receiveTimeout: const Duration(seconds: 120)),
+    );
+    return PersonResearch.fromJson(response.data as Map<String, dynamic>);
+  }
+
   // F-005/F-006 AIによる人脈グラフ提案・グラフ取得
   Future<List<RelationSuggestion>> suggestRelations(String personId) async {
     final response = await _dio.get('/api/persons/$personId/relations/suggest');

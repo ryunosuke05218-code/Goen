@@ -660,6 +660,26 @@ CREATE INDEX ix_ai_person_cards_person_generation ON ai_person_cards (person_id,
 CREATE TRIGGER trg_ai_person_cards_touch BEFORE UPDATE ON ai_person_cards
   FOR EACH ROW EXECUTE FUNCTION fn_touch();
 
+-- 4.4a person_research_results（F-038 AI自動リサーチ：人物1件につき最新1件のみ・履歴なし）
+-- ai_person_cardsとは異なり、ユーザー自身のデータではなく公開Web検索結果を根拠にするため、
+-- 出典（sources）を必須で保持する。世代管理は行わず、再実行のたびに上書きする。
+CREATE TABLE person_research_results (
+  person_id    uuid PRIMARY KEY REFERENCES persons(person_id) ON DELETE CASCADE,
+  org_id       uuid NOT NULL REFERENCES organizations(org_id),
+  summary      text NOT NULL,
+  sources      jsonb NOT NULL DEFAULT '[]'::jsonb, -- [{"title": "...", "url": "..."}, ...]
+  llm_model    text NOT NULL,
+  generated_at timestamptz NOT NULL DEFAULT now(),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  created_by   uuid,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  updated_by   uuid,
+  version      integer NOT NULL DEFAULT 1
+);
+
+CREATE TRIGGER trg_person_research_results_touch BEFORE UPDATE ON person_research_results
+  FOR EACH ROW EXECUTE FUNCTION fn_touch();
+
 -- 4.5 briefs（商談前ブリーフ：履歴テーブルなし）
 CREATE TABLE briefs (
   brief_id      uuid PRIMARY KEY DEFAULT gen_random_uuid(),

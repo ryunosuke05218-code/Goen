@@ -5,5 +5,7 @@ public record TranscriptionResult(string Text, decimal Confidence, string Model,
 
 public interface ISpeechToTextService
 {
-    Task<TranscriptionResult> TranscribeAsync(Stream audioStream, CancellationToken cancellationToken = default);
+    // mimeType: 音声フォーマットの判定に使う（例: "audio/wav"、"audio/mp4"）。未指定時は実装側で妥当な既定値にフォールバックする。
+    Task<TranscriptionResult> TranscribeAsync(
+        Stream audioStream, string? mimeType = null, CancellationToken cancellationToken = default);
 }

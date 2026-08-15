@@ -202,6 +202,35 @@ class PersonDetail {
       );
 }
 
+// F-038 AI自動リサーチ: 氏名・会社名からAIがWeb検索して生成した参考情報。出典（sources）を必ず伴う。
+class PersonResearchSource {
+  PersonResearchSource({required this.title, required this.url});
+
+  final String title;
+  final String url;
+
+  factory PersonResearchSource.fromJson(Map<String, dynamic> json) => PersonResearchSource(
+        title: json['title'] as String,
+        url: json['url'] as String,
+      );
+}
+
+class PersonResearch {
+  PersonResearch({required this.summary, required this.sources, required this.generatedAt});
+
+  final String summary;
+  final List<PersonResearchSource> sources;
+  final DateTime generatedAt;
+
+  factory PersonResearch.fromJson(Map<String, dynamic> json) => PersonResearch(
+        summary: json['summary'] as String,
+        sources: (json['sources'] as List? ?? [])
+            .map((e) => PersonResearchSource.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        generatedAt: DateTime.parse(json['generatedAt'] as String).toLocal(),
+      );
+}
+
 class ContactItem {
   ContactItem({
     required this.contactId,

@@ -5,6 +5,7 @@ using Goen.Infrastructure.ExternalAi;
 using Goen.Infrastructure.Persistence;
 using Goen.Infrastructure.QrCode;
 using Goen.Infrastructure.Rag;
+using Goen.Infrastructure.Research;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,7 @@ public class PersonsController : ControllerBase
     private readonly ILlmService _llm;
     private readonly AiChatOptions _aiOptions;
     private readonly UrlTextFetcher _urlTextFetcher;
+    private readonly PersonResearchService _research;
 
     public PersonsController(
         GoenDbContext db,
@@ -41,7 +43,8 @@ public class PersonsController : ControllerBase
         ISpeechToTextService asr,
         ILlmService llm,
         IOptions<AiChatOptions> aiOptions,
-        UrlTextFetcher urlTextFetcher)
+        UrlTextFetcher urlTextFetcher,
+        PersonResearchService research)
     {
         _db = db;
         _readSync = readSync;
@@ -54,6 +57,7 @@ public class PersonsController : ControllerBase
         _llm = llm;
         _aiOptions = aiOptions.Value;
         _urlTextFetcher = urlTextFetcher;
+        _research = research;
     }
 
     // F-004（簡易版）: persons_read への氏名・要約の部分一致検索。曖昧検索（RAG）は将来のフェーズで拡張する。
@@ -498,7 +502,7 @@ public class PersonsController : ControllerBase
         if (contact is null) return NotFound();
 
         await using var stream = audio.OpenReadStream();
-        var asrResult = await _asr.TranscribeAsync(stream, ct);
+        var asrResult = await _asr.TranscribeAsync(stream, audio.ContentType, ct);
 
         var media = new ContactMedia
         {
@@ -657,6 +661,71 @@ public class PersonsController : ControllerBase
         await _ragQueue.EnqueueAsync("card", card.CardId, personId, 'U', ct);
 
         return Ok(new GenerateCardResponse(card.Summary!, card.Business, card.Issues, card.Hobby, card.Generation));
+    }
+
+    // F-038 AI自動リサーチ: 氏名・会社名からAIがWeb検索し、公開情報の参考情報を生成する。
+    // 会社名が未設定の場合は同姓同名で誤った人物の情報を拾うリスクが高いため実行しない。
+    [HttpPost("{personId:guid}/research/generate")]
+    public async Task<ActionResult<PersonResearchResponse>> GenerateResearch(Guid personId, CancellationToken ct)
+    {
+        var person = await _db.Persons
+            .Include(p => p.Company)
+            .FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
+        if (person is null) return NotFound();
+
+        if (person.Company is null || string.IsNullOrWhiteSpace(person.Company.CompanyName))
+        {
+            return BadRequest(new { message = "会社名が未設定のため、AIリサーチは実行できません（同姓同名の誤認識を避けるため）。" });
+        }
+
+        var draft = await _research.ResearchAsync(person.FullName, person.Company.CompanyName, person.JobTitle, ct);
+        var sourcesJson = JsonSerializer.Serialize(draft.Sources);
+
+        var existing = await _db.PersonResearchResults.FirstOrDefaultAsync(r => r.PersonId == personId, ct);
+        if (existing is null)
+        {
+            _db.PersonResearchResults.Add(new PersonResearchResult
+            {
+                PersonId = personId,
+                OrgId = User.GetOrgId(),
+                Summary = draft.Summary,
+                SourcesJson = sourcesJson,
+                LlmModel = $"{_aiOptions.Provider}:{_aiOptions.Model}",
+                GeneratedAt = DateTimeOffset.UtcNow,
+                CreatedAt = DateTimeOffset.UtcNow,
+                CreatedBy = User.GetUserId(),
+                UpdatedAt = DateTimeOffset.UtcNow,
+                UpdatedBy = User.GetUserId(),
+            });
+        }
+        else
+        {
+            existing.Summary = draft.Summary;
+            existing.SourcesJson = sourcesJson;
+            existing.LlmModel = $"{_aiOptions.Provider}:{_aiOptions.Model}";
+            existing.GeneratedAt = DateTimeOffset.UtcNow;
+            existing.UpdatedBy = User.GetUserId();
+        }
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new PersonResearchResponse(
+            draft.Summary,
+            draft.Sources.Select(s => new PersonResearchSourceResponse(s.Title, s.Url)).ToList(),
+            DateTimeOffset.UtcNow));
+    }
+
+    [HttpGet("{personId:guid}/research")]
+    public async Task<ActionResult<PersonResearchResponse?>> GetResearch(Guid personId, CancellationToken ct)
+    {
+        var result = await _db.PersonResearchResults
+            .FirstOrDefaultAsync(r => r.PersonId == personId && r.OrgId == User.GetOrgId(), ct);
+        if (result is null) return Ok(null);
+
+        var sources = JsonSerializer.Deserialize<List<PersonResearchSource>>(result.SourcesJson) ?? new();
+        return Ok(new PersonResearchResponse(
+            result.Summary,
+            sources.Select(s => new PersonResearchSourceResponse(s.Title, s.Url)).ToList(),
+            result.GeneratedAt));
     }
 
     // F-005/F-006 人脈グラフ: 対象人物と関連しそうな候補者をAIに提示し、関係の提案を受ける（未確定・DB未反映）
