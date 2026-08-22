@@ -97,6 +97,7 @@ class _NetworkMapScreenState extends ConsumerState<NetworkMapScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'network_map_fab',
         icon: const Icon(Icons.auto_awesome_outlined),
         label: const Text('AIに相談する'),
         onPressed: () => context.push('/network-map/ai-assistant'),

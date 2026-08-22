@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../persons/person_repository.dart';
 import 'dashboard_models.dart';
 import 'dashboard_repository.dart';
 
@@ -45,6 +46,8 @@ class DashboardScreen extends ConsumerWidget {
             children: [
               _TotalCountCard(totalCount: data.totalCount),
               const SizedBox(height: 16),
+              const _SelfPersonCard(),
+              const SizedBox(height: 16),
               _UpcomingContactsCard(contacts: data.upcomingContacts),
               const SizedBox(height: 16),
               _BreakdownCard(
@@ -58,6 +61,74 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// 自分自身の人物カルテ（isSelf）の登録・編集導線。未登録時は登録ボタン、登録済みなら編集ボタンを出す。
+class _SelfPersonCard extends ConsumerWidget {
+  const _SelfPersonCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selfAsync = ref.watch(selfPersonProvider);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: selfAsync.when(
+          loading: () => const SizedBox(
+            height: 24,
+            child: Center(child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))),
+          ),
+          error: (err, st) => Text('自分の人物カルテの取得に失敗しました: $err', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          data: (self) {
+            if (self == null) {
+              return Row(
+                children: [
+                  Icon(Icons.badge_outlined, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text('自分の人物カルテがまだ登録されていません', style: TextStyle(fontSize: 13)),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      final created = await context.push('/persons/me/new');
+                      if (created != null) ref.invalidate(selfPersonProvider);
+                    },
+                    child: const Text('登録する'),
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: Icon(Icons.badge_outlined, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('自分の人物カルテ', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text(self.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                OutlinedButton(
+                  onPressed: () async {
+                    final updated = await context.push<bool>('/persons/${self.personId}/edit', extra: self);
+                    if (updated == true) ref.invalidate(selfPersonProvider);
+                  },
+                  child: const Text('編集する'),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -117,9 +188,13 @@ class _UpcomingContactsCard extends StatelessWidget {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.event_outlined),
-                  title: Text(c.content, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(c.personName),
-                  trailing: c.dueDate == null ? null : Text(_formatDate(c.dueDate!)),
+                  title: Text(
+                    '${c.personName}（${_contactTypeLabel(c.contactType)}）',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: c.place == null ? null : Text(c.place!),
+                  trailing: Text(_formatDate(c.occurredAt)),
                   // 人物カルテ内の接点履歴セクションへ遷移する
                   onTap: () => context.push('/persons/${c.personId}'),
                 ),
@@ -131,6 +206,15 @@ class _UpcomingContactsCard extends StatelessWidget {
 
   String _formatDate(DateTime date) => '${date.month}/${date.day}';
 }
+
+String _contactTypeLabel(String type) => switch (type) {
+      'card_exchange' => '名刺交換',
+      'one_on_one' => '1to1',
+      'meeting' => '商談',
+      'referral' => '紹介',
+      'event' => 'イベント同席',
+      _ => 'その他',
+    };
 
 class _BreakdownCard extends StatelessWidget {
   const _BreakdownCard({required this.title, required this.entries});

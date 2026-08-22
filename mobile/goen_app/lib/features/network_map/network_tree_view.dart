@@ -145,19 +145,21 @@ class _HorizontalLayout {
     };
 
     // 人数が多い業種から順に、その時点で人数の少ない側へ割り振ることで左右のバランスを取る。
-    final sortedByWeight = [...groups]..sort((a, b) => _weightOf(b, collapsed).compareTo(_weightOf(a, collapsed)));
+    // 振り分けの基準には折りたたみ状態に依存しないpersonCount（実際の総人数）を使う。
+    // ここで_weightOf（折りたたみ状態により1〜personCountの間で変動する値）を使うと、
+    // 他のグループを開閉しただけで無関係なグループの左右が入れ替わってしまう不具合があった。
+    final sortedByCount = [...groups]..sort((a, b) => b.personCount.compareTo(a.personCount));
     final rightGroups = <TreeGroupNode>[];
     final leftGroups = <TreeGroupNode>[];
-    var rightWeight = 0.0;
-    var leftWeight = 0.0;
-    for (final group in sortedByWeight) {
-      final weight = _weightOf(group, collapsed);
-      if (rightWeight <= leftWeight) {
+    var rightCount = 0;
+    var leftCount = 0;
+    for (final group in sortedByCount) {
+      if (rightCount <= leftCount) {
         rightGroups.add(group);
-        rightWeight += weight;
+        rightCount += group.personCount;
       } else {
         leftGroups.add(group);
-        leftWeight += weight;
+        leftCount += group.personCount;
       }
     }
 
@@ -192,13 +194,6 @@ class _HorizontalLayout {
   double width = 700;
   double height = 700;
   double _cursor = 0;
-
-  double _weightOf(Object node, Set<String> collapsed) {
-    if (node is NetworkNode) return 1;
-    final group = node as TreeGroupNode;
-    if (collapsed.contains(group.key) || group.children.isEmpty) return 1;
-    return group.children.fold<double>(0, (sum, c) => sum + _weightOf(c, collapsed));
-  }
 
   void _shiftY(int start, int end, double dy) {
     for (var i = start; i < end; i++) {
@@ -266,6 +261,139 @@ class _HorizontalLayout {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 円形表示（自分を中心に業種を円状配置し、業種同士を輪でつなぐレイアウト）は実装済みだが、
+// 別フェーズで対応する方針のためUI（切替ボタン）からは未接続の状態で保留にしている。
+// 実機確認済み: 折りたたみ状態からの展開（花のように外側へ広がる見た目）・重なり回避ロジックともに動作。
+// 再開する場合は NetworkTreeView に radial: true を渡す呼び出し元（切替ボタン等）を
+// network_map_screen.dart に追加するだけでよい（本ファイル側の変更は不要な想定）。
+// ---------------------------------------------------------------------------
+
+// 隣接ノード同士が重ならないよう確保する最小円弧長(px)。チップ1個分の見た目の幅を目安にする。
+const double _radialMinArcPerLeaf = 100;
+// 業種のみ・全折りたたみの最小構成でも十分な間隔になる基準半径。
+const double _radialBaseRadiusStep = 220;
+// 業種同士をつなぐ「輪」のライン色。特定の業種色に寄せず中立色にする。
+const Color _radialRingColor = Color(0xFFB0B8C1);
+
+/// F-006拡張: 自分を中心に業種を円状に配置する表示。業種＞職種＞会社名＞人物の階層は、
+/// 業種の位置から放射状（花が開くイメージ）に外側へ展開する。自分↔業種の線は描画せず、
+/// 代わりに業種同士を少し太めの線でつなぎ、ひとつの輪として見えるようにする。
+///
+/// 重なり防止の考え方: 折りたたみ状態での合計ウェイト（_HorizontalLayoutと同じ「葉1個=1」の重み）から
+/// 1ウェイトあたりの角度(anglePerUnit)を求め、その角度でも隣接ノードの円弧長が_radialMinArcPerLeaf
+/// を下回らないよう半径(_radiusStep)を逆算して広げる。展開が進み合計ウェイトが増えるほど半径全体が
+/// 外側に広がるため、どれだけ展開しても隣接ノードの間隔は一定以上に保たれる。
+class _RadialLayout {
+  _RadialLayout({required List<TreeGroupNode> groups, required Set<String> collapsed}) {
+    if (groups.isEmpty) return;
+
+    final colorOf = <TreeGroupNode, Color>{
+      for (var i = 0; i < groups.length; i++) groups[i]: _branchPalette[i % _branchPalette.length],
+    };
+
+    final totalWeight = groups.fold<double>(0, (sum, g) => sum + _weightOf(g, collapsed));
+    final anglePerUnit = totalWeight <= 0 ? 2 * math.pi : (2 * math.pi) / totalWeight;
+    _radiusStep = math.max(_radialBaseRadiusStep, _radialMinArcPerLeaf / anglePerUnit);
+
+    _cursor = -math.pi / 2; // 12時の位置を起点に時計回りへ配置する
+    for (final group in groups) {
+      _layoutNode(group, depth: 1, branchColor: colorOf[group]!, collapsed: collapsed, parentKey: null, anglePerUnit: anglePerUnit);
+    }
+
+    final positionByKey = {for (final n in nodes) n.key: n.position};
+    for (final n in nodes) {
+      if (n.parentKey == null) continue; // 自分↔業種は線でつながない
+      final from = positionByKey[n.parentKey] ?? Offset.zero;
+      edges.add(_LayoutEdge(from: from, to: n.position, color: n.color));
+    }
+
+    final ring = nodes.where((n) => n.depth == 1).toList();
+    for (var i = 0; i < ring.length; i++) {
+      ringEdges.add(_LayoutEdge(from: ring[i].position, to: ring[(i + 1) % ring.length].position, color: _radialRingColor));
+    }
+
+    final maxRadius = nodes.isEmpty ? 0.0 : nodes.map((n) => n.position.distance).reduce(math.max);
+    width = (maxRadius + 260) * 2;
+    height = (maxRadius + 260) * 2;
+  }
+
+  final List<_LayoutNode> nodes = [];
+  final List<_LayoutEdge> edges = [];
+  final List<_LayoutEdge> ringEdges = [];
+  double width = 700;
+  double height = 700;
+  double _cursor = 0;
+  double _radiusStep = _radialBaseRadiusStep;
+
+  double _weightOf(Object node, Set<String> collapsed) {
+    if (node is NetworkNode) return 1;
+    final group = node as TreeGroupNode;
+    if (collapsed.contains(group.key) || group.children.isEmpty) return 1;
+    return group.children.fold<double>(0, (sum, c) => sum + _weightOf(c, collapsed));
+  }
+
+  /// 深さ方向（業種→職種→会社名→人物）は中心から外へ半径を伸ばし、同じ深さの兄弟は角度方向に
+  /// 並べる。戻り値はこのノードの角度（親ノードの位置決めに使う）。
+  double _layoutNode(
+    Object node, {
+    required int depth,
+    required Color branchColor,
+    required Set<String> collapsed,
+    required String? parentKey,
+    required double anglePerUnit,
+  }) {
+    final radius = depth * _radiusStep;
+    final color = _shadeForDepth(branchColor, depth - 1);
+
+    if (node is NetworkNode) {
+      final angle = _cursor + anglePerUnit / 2;
+      _cursor += anglePerUnit;
+      final key = 'p:${node.personId}';
+      nodes.add(_LayoutNode(
+        key: key,
+        parentKey: parentKey,
+        label: node.fullName,
+        position: Offset.fromDirection(angle, radius),
+        depth: depth,
+        color: color,
+        isPerson: true,
+        personId: node.personId,
+      ));
+      return angle;
+    }
+
+    final group = node as TreeGroupNode;
+    final isCollapsed = collapsed.contains(group.key);
+    double angle;
+    if (isCollapsed || group.children.isEmpty) {
+      angle = _cursor + anglePerUnit / 2;
+      _cursor += anglePerUnit;
+    } else {
+      final childAngles = [
+        for (final child in group.children)
+          _layoutNode(child,
+              depth: depth + 1, branchColor: branchColor, collapsed: collapsed, parentKey: group.key, anglePerUnit: anglePerUnit),
+      ];
+      angle = childAngles.reduce((a, b) => a + b) / childAngles.length;
+    }
+
+    nodes.add(_LayoutNode(
+      key: group.key,
+      parentKey: parentKey,
+      label: group.label,
+      position: Offset.fromDirection(angle, radius),
+      depth: depth,
+      color: color,
+      isPerson: false,
+      count: group.personCount,
+      isCollapsed: isCollapsed,
+      isCollapsible: group.children.isNotEmpty,
+    ));
+    return angle;
+  }
+}
+
 /// 自分を中心に、左右2方向にのみ業種＞職種＞会社名＞人物の階層を展開するマインドマップ表示。
 /// 業種は人数バランスを見て左右の列に振り分けられ、同じ列内で項目が増えると縦に積み上がる
 /// （全方位に伸びる見た目は使いづらいとのフィードバックを受け、左右固定のレイアウトにしている）。
@@ -277,11 +405,14 @@ class NetworkTreeView extends StatefulWidget {
     required this.graph,
     required this.onPersonTap,
     this.selfLabel = '自分',
+    this.radial = false,
   });
 
   final NetworkGraph graph;
   final void Function(String personId) onPersonTap;
   final String selfLabel;
+  // false: 左右2方向のツリー表示（既定）。true: 自分を中心に業種を円状に配置する表示。
+  final bool radial;
 
   @override
   State<NetworkTreeView> createState() => _NetworkTreeViewState();
@@ -308,6 +439,15 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
   }
 
   @override
+  void didUpdateWidget(covariant NetworkTreeView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 表示形式（ツリー/円形）を切り替えるとキャンバスの大きさ・原点が変わるため、パン位置を再計算させる。
+    if (oldWidget.radial != widget.radial) {
+      _initialCentered = false;
+    }
+  }
+
+  @override
   void dispose() {
     _transformController.dispose();
     super.dispose();
@@ -326,8 +466,38 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
       );
     }
 
-    final layout = _HorizontalLayout(groups: groups, collapsed: _collapsed);
-    final center = Offset(layout.width / 2, layout.height / 2);
+    // キャンバスサイズ・中心座標は、現在の折りたたみ状態ではなく「全展開した場合」を基準に固定する。
+    // 折りたたみ状態ごとのレイアウト実寸から中心を求めると、グループを開閉するたびにキャンバス全体の
+    // 大きさが変わって中心座標（＝自分の位置）がずれ、パン位置は据え置きのため図がずるずる横に
+    // 流れて見える不具合があった（開いたグループが伸びた側へ図全体が寄っていくように見える）。
+    // 全展開基準で固定することで、開閉してもキャンバスの大きさ・原点は変わらず表示が安定する。
+    final double canvasWidth;
+    final double canvasHeight;
+    final List<_LayoutNode> layoutNodes;
+    final List<_LayoutEdge> structuralEdges;
+    final List<_LayoutEdge> ringEdges;
+    final bool curvedEdges;
+
+    if (widget.radial) {
+      final envelope = _RadialLayout(groups: groups, collapsed: const {});
+      final layout = _RadialLayout(groups: groups, collapsed: _collapsed);
+      canvasWidth = envelope.width;
+      canvasHeight = envelope.height;
+      layoutNodes = layout.nodes;
+      structuralEdges = layout.edges;
+      ringEdges = layout.ringEdges;
+      curvedEdges = false;
+    } else {
+      final envelope = _HorizontalLayout(groups: groups, collapsed: const {});
+      final layout = _HorizontalLayout(groups: groups, collapsed: _collapsed);
+      canvasWidth = envelope.width;
+      canvasHeight = envelope.height;
+      layoutNodes = layout.nodes;
+      structuralEdges = layout.edges;
+      ringEdges = const [];
+      curvedEdges = true;
+    }
+    final center = Offset(canvasWidth / 2, canvasHeight / 2);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -348,16 +518,16 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
           boundaryMargin: const EdgeInsets.all(200),
           constrained: false,
           child: SizedBox(
-            width: layout.width,
-            height: layout.height,
+            width: canvasWidth,
+            height: canvasHeight,
             child: Stack(
               children: [
                 CustomPaint(
-                  size: Size(layout.width, layout.height),
-                  painter: _EdgePainter(structuralEdges: layout.edges, center: center),
+                  size: Size(canvasWidth, canvasHeight),
+                  painter: _EdgePainter(structuralEdges: structuralEdges, ringEdges: ringEdges, center: center, curved: curvedEdges),
                 ),
                 _buildSelfNode(center),
-                for (final node in layout.nodes) _buildNode(node, center),
+                for (final node in layoutNodes) _buildNode(node, center),
               ],
             ),
           ),
@@ -457,15 +627,31 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
 }
 
 class _EdgePainter extends CustomPainter {
-  _EdgePainter({required this.structuralEdges, required this.center});
+  _EdgePainter({
+    required this.structuralEdges,
+    required this.center,
+    this.ringEdges = const [],
+    this.curved = true,
+  });
 
   final List<_LayoutEdge> structuralEdges;
+  final List<_LayoutEdge> ringEdges;
   final Offset center;
+  // true: ツリー表示用の水平接線カーブ。false: 円形表示用の直線（中心から放射状に伸びる見た目にする）。
+  final bool curved;
 
   @override
   void paint(Canvas canvas, Size size) {
+    // 業種同士をつなぐ「輪」を先に描き、階層の線をその上に重ねる
+    for (final edge in ringEdges) {
+      _drawStraight(canvas, center + edge.from, center + edge.to, edge.color, strokeWidth: 4.5, alpha: 0.5);
+    }
     for (final edge in structuralEdges) {
-      _drawCurve(canvas, center + edge.from, center + edge.to, edge.color);
+      if (curved) {
+        _drawCurve(canvas, center + edge.from, center + edge.to, edge.color);
+      } else {
+        _drawStraight(canvas, center + edge.from, center + edge.to, edge.color, strokeWidth: 2.2, alpha: 0.55);
+      }
     }
   }
 
@@ -484,6 +670,16 @@ class _EdgePainter extends CustomPainter {
     canvas.drawPath(path, paint);
   }
 
+  void _drawStraight(Canvas canvas, Offset from, Offset to, Color color, {required double strokeWidth, required double alpha}) {
+    final paint = Paint()
+      ..color = color.withValues(alpha: alpha)
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(from, to, paint);
+  }
+
   @override
-  bool shouldRepaint(covariant _EdgePainter oldDelegate) => oldDelegate.structuralEdges != structuralEdges;
+  bool shouldRepaint(covariant _EdgePainter oldDelegate) =>
+      oldDelegate.structuralEdges != structuralEdges || oldDelegate.ringEdges != ringEdges || oldDelegate.curved != curved;
 }

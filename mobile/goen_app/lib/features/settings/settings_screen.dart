@@ -48,12 +48,18 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 const Text('文字の大きさ'),
                 const SizedBox(height: 8),
-                SegmentedButton<AppTextScale>(
-                  segments: AppTextScale.values
-                      .map((scale) => ButtonSegment(value: scale, label: Text(scale.label)))
-                      .toList(),
-                  selected: {display.textScale},
-                  onSelectionChanged: (selection) => displayNotifier.setTextScale(selection.first),
+                // 文字サイズを「特大」等に設定した状態でこの画面自体を開くと、4択分のラベルが画面幅に
+                // 収まらずSegmentedButtonが各セグメントを強制的に圧縮し、日本語ラベルが1文字ずつ
+                // 縦に折り返される不具合があった。横スクロール可能にして圧縮させないようにする。
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SegmentedButton<AppTextScale>(
+                    segments: AppTextScale.values
+                        .map((scale) => ButtonSegment(value: scale, label: Text(scale.label)))
+                        .toList(),
+                    selected: {display.textScale},
+                    onSelectionChanged: (selection) => displayNotifier.setTextScale(selection.first),
+                  ),
                 ),
               ],
             ),
@@ -153,6 +159,18 @@ class SettingsScreen extends ConsumerWidget {
                 }
               },
             ),
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('プラン', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.workspace_premium_outlined),
+            title: const Text('プラン・お支払い'),
+            subtitle: const Text('契約状況の確認、お支払い方法・解約の管理'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/settings/subscription'),
           ),
           const Divider(),
           const Padding(

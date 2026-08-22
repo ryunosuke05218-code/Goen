@@ -19,7 +19,7 @@ android {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.goen.goen_app"
         // 要件定義書 6章「対応端末」: Android 13以上（API 33）を対象とする。
-        minSdk = 33
+        minSdk = 31
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

@@ -17,6 +17,7 @@ public class Person
     public DateTimeOffset? LastContactAt { get; set; }
     public Guid? IntroducerPersonId { get; set; }
     public string SourceType { get; set; } = "manual"; // card_ocr / manual / import
+    public bool IsSelf { get; set; } // 利用者自身を表す人物カルテ（1ユーザーにつき最大1件）
 
     public DateTimeOffset CreatedAt { get; set; }
     public Guid? CreatedBy { get; set; }

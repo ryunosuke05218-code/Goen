@@ -9,5 +9,6 @@ public record DashboardResponse(
 
 public record OccupationCountItem(string OccupationName, int Count);
 
-// 次回アクション（次回接点予定）。タップすると対象人物のカルテ（接点履歴）へ遷移する
-public record UpcomingContactItem(Guid PersonId, string PersonName, string Content, DateOnly? DueDate);
+// 今日から1週間以内に予定されている接点（Contacts.OccurredAtが未来日の記録）。
+// タップすると対象人物のカルテ（接点履歴）へ遷移する
+public record UpcomingContactItem(Guid PersonId, string PersonName, string ContactType, DateTimeOffset OccurredAt, string? Place);

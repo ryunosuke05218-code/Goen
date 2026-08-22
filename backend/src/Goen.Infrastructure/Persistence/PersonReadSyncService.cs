@@ -68,6 +68,7 @@ public class PersonReadSyncService
         read.OrgId = person.OrgId;
         read.OwnerUserId = person.OwnerUserId;
         read.Visibility = person.Visibility;
+        read.IsSelf = person.IsSelf;
         read.FullName = person.FullName;
         read.FullNameKana = person.FullNameKana;
         read.CompanyName = person.Company?.CompanyName;

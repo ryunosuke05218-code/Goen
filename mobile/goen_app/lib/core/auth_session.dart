@@ -89,6 +89,71 @@ class AuthSessionNotifier extends Notifier<AuthState> {
     }
   }
 
+  Future<String?> register({required String email, required String password, required String displayName}) async {
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    try {
+      final response = await dio.post('/api/auth/register', data: {
+        'email': email,
+        'password': password,
+        'displayName': displayName,
+      });
+      final data = response.data as Map<String, dynamic>;
+      await _storage.saveTokens(
+        accessToken: data['accessToken'] as String,
+        refreshToken: data['refreshToken'] as String,
+      );
+      final user = data['user'] as Map<String, dynamic>;
+      state = AuthState(
+        status: AuthStatus.authenticated,
+        userDisplayName: user['displayName'] as String?,
+        email: user['email'] as String?,
+      );
+      return null;
+    } on DioException catch (e) {
+      final message = (e.response?.data is Map) ? (e.response?.data as Map)['message'] as String? : null;
+      if (e.response?.statusCode == 409) {
+        return message ?? 'このメールアドレスは既に登録されています。';
+      }
+      if (e.response?.statusCode == 400) {
+        return message ?? '入力内容を確認してください。';
+      }
+      return '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。';
+    }
+  }
+
+  // バックエンドはメールアドレスの存在有無に関わらず常に200を返す（列挙防止）。
+  // 通信エラー時のみ success=false とし、呼び出し元は「コード入力へ進めてよいか」を判断できる。
+  Future<(bool success, String message)> forgotPassword({required String email}) async {
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    try {
+      final response = await dio.post('/api/auth/forgot-password', data: {'email': email});
+      final data = response.data as Map<String, dynamic>;
+      return (true, data['message'] as String? ?? '再設定用のコードを送信しました。');
+    } on DioException {
+      return (false, '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。');
+    }
+  }
+
+  Future<(bool success, String message)> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    try {
+      final response = await dio.post('/api/auth/reset-password', data: {
+        'email': email,
+        'code': code,
+        'newPassword': newPassword,
+      });
+      final data = response.data as Map<String, dynamic>;
+      return (true, data['message'] as String? ?? 'パスワードを再設定しました。');
+    } on DioException catch (e) {
+      final message = (e.response?.data is Map) ? (e.response?.data as Map)['message'] as String? : null;
+      return (false, message ?? '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。');
+    }
+  }
+
   Future<void> logout() async {
     await _storage.clear();
     state = const AuthState(status: AuthStatus.unauthenticated);

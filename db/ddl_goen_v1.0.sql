@@ -137,6 +137,16 @@ CREATE TABLE organizations (
   org_name       text NOT NULL,
   parent_org_id  uuid REFERENCES organizations(org_id),
   plan_type      text NOT NULL CHECK (plan_type IN ('personal','team','enterprise')),
+  -- サブスク課金の状態。決済手段（Stripe/Google Play/App Store）に依存しないよう、
+  -- 内部プランコード（subscription_plan_code）とプロバイダ種別（subscription_provider）を分けて持つ。
+  subscription_status text NOT NULL DEFAULT 'trialing'
+    CHECK (subscription_status IN ('trialing','active','past_due','canceled','incomplete')),
+  subscription_provider text, -- 'stripe' / 'google_play' / 'app_store'（未契約はNULL）
+  subscription_plan_code text, -- 例: 'standard_monthly'
+  subscription_provider_customer_id text, -- Stripe Customer ID等
+  subscription_provider_subscription_id text, -- Stripe Subscription ID等
+  subscription_current_period_end timestamptz,
+  trial_ends_at  timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
   created_by     uuid,
   updated_at     timestamptz NOT NULL DEFAULT now(),
@@ -279,6 +289,7 @@ CREATE TABLE persons (
   last_contact_at      timestamptz,
   introducer_person_id uuid REFERENCES persons(person_id),
   source_type          text NOT NULL CHECK (source_type IN ('card_ocr','manual','import','mutual_registration')),
+  is_self              boolean NOT NULL DEFAULT false, -- 利用者自身を表す人物カルテ（人脈の「契約先」ではなく本人のプロフィール）
   created_at           timestamptz NOT NULL DEFAULT now(),
   created_by           uuid,
   updated_at           timestamptz NOT NULL DEFAULT now(),
@@ -290,6 +301,8 @@ CREATE INDEX ix_persons_org_company ON persons (org_id, company_id);
 CREATE INDEX ix_persons_full_name_kana ON persons (full_name_kana);
 CREATE INDEX ix_persons_introducer ON persons (introducer_person_id);
 CREATE INDEX ix_persons_occupation_code ON persons (occupation_code);
+-- 1ユーザーにつき自分自身のカルテ（is_self=true）は最大1件までとする
+CREATE UNIQUE INDEX ux_persons_owner_self ON persons (org_id, owner_user_id) WHERE is_self;
 
 CREATE TABLE h_persons (
   LIKE persons INCLUDING DEFAULTS,
@@ -742,6 +755,7 @@ CREATE TABLE persons_read (
   org_id          uuid NOT NULL,
   owner_user_id   uuid NOT NULL,
   visibility      text NOT NULL,
+  is_self         boolean NOT NULL DEFAULT false,
   full_name       text NOT NULL,
   full_name_kana  text,
   company_name    text,
@@ -829,6 +843,17 @@ CREATE TABLE auth_tokens (
 );
 CREATE UNIQUE INDEX ux_auth_tokens_hash ON auth_tokens (token_hash);
 CREATE INDEX ix_auth_tokens_user_id ON auth_tokens (user_id) WHERE revoked_at IS NULL;
+
+-- 6.2 password_reset_tokens（パスワードリセット用の6桁コード。平文は保存せずハッシュのみ保持）
+CREATE TABLE password_reset_tokens (
+  token_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  code_hash  text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  used_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_password_reset_tokens_user_id ON password_reset_tokens (user_id, created_at DESC);
 
 -- 7.2 audit_logs（監査ログ）※月次パーティション
 CREATE TABLE audit_logs (

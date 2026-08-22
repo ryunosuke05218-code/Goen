@@ -7,8 +7,12 @@ import 'core/display_settings.dart';
 import 'core/providers.dart';
 import 'features/ai_assistant/ai_assistant_history_screen.dart';
 import 'features/ai_assistant/ai_assistant_screen.dart';
+import 'features/auth/forgot_password_screen.dart';
 import 'features/auth/login_screen.dart';
+import 'features/auth/register_screen.dart';
+import 'features/auth/reset_password_screen.dart';
 import 'features/auth/unlock_screen.dart';
+import 'features/billing/subscription_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/home/main_bottom_nav_bar.dart';
@@ -26,6 +30,7 @@ import 'features/persons/person_edit_screen.dart';
 import 'features/persons/person_list_screen.dart';
 import 'features/persons/person_network_screen.dart';
 import 'features/persons/person_register_screen.dart';
+import 'features/persons/self_person_register_screen.dart';
 import 'features/persons/voice_memo_screen.dart';
 import 'features/settings/settings_screen.dart';
 
@@ -38,6 +43,9 @@ class _RouterRefreshNotifier extends ChangeNotifier {
   }
 }
 
+// 未ログインでもアクセスしてよい画面（それ以外は/loginへリダイレクトする）
+const _publicRoutes = {'/login', '/register', '/forgot-password', '/reset-password'};
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = _RouterRefreshNotifier(ref);
   ref.onDispose(refreshNotifier.dispose);
@@ -47,19 +55,19 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: refreshNotifier,
     redirect: (context, state) {
       final auth = ref.read(authSessionProvider);
-      final loggingIn = state.matchedLocation == '/login';
+      final onPublicRoute = _publicRoutes.contains(state.matchedLocation);
 
       if (auth.status == AuthStatus.unknown) {
         return state.matchedLocation == '/' ? null : '/';
       }
       if (auth.status == AuthStatus.unauthenticated) {
-        return loggingIn ? null : '/login';
+        return onPublicRoute ? null : '/login';
       }
       if (auth.status == AuthStatus.locked) {
         return state.matchedLocation == '/unlock' ? null : '/unlock';
       }
       // authenticated
-      if (loggingIn || state.matchedLocation == '/' || state.matchedLocation == '/unlock') {
+      if (onPublicRoute || state.matchedLocation == '/' || state.matchedLocation == '/unlock') {
         return '/home';
       }
       return null;
@@ -67,6 +75,12 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', builder: (context, state) => const _SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
+      GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) => ResetPasswordScreen(initialEmail: state.extra as String?),
+      ),
       GoRoute(path: '/unlock', builder: (context, state) => const UnlockScreen()),
       GoRoute(
         path: '/home',
@@ -77,11 +91,21 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/dashboard', builder: (context, state) => const DashboardScreen()),
       GoRoute(path: '/persons', builder: (context, state) => const PersonListScreen()),
-      GoRoute(path: '/persons/new', builder: (context, state) => const PersonRegisterScreen()),
+      GoRoute(
+        path: '/persons/new',
+        // 人物一覧の「＋」から独立した画面として開いた場合も、ホーム画面のタブとして開いた場合と同じく
+        // 下部メニューを表示する（HomeScreenのIndexedStackタブとして使う場合はHomeScreen側のbottomNavigationBar
+        // が既にあるため、PersonRegisterScreen自体には持たせず、ここでルート単位でラップする）。
+        builder: (context, state) => Scaffold(
+          body: const PersonRegisterScreen(),
+          bottomNavigationBar: const MainBottomNavBar(selectedIndex: 2),
+        ),
+      ),
       GoRoute(
         path: '/persons/new/confirm',
         builder: (context, state) => PersonRegisterConfirmScreen(draft: state.extra as OcrDraft),
       ),
+      GoRoute(path: '/persons/me/new', builder: (context, state) => const SelfPersonRegisterScreen()),
       GoRoute(
         path: '/persons/:id',
         builder: (context, state) => PersonDetailScreen(personId: state.pathParameters['id']!),
@@ -137,6 +161,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/intro-letter/history', builder: (context, state) => const IntroLetterHistoryScreen()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+      GoRoute(path: '/settings/subscription', builder: (context, state) => const SubscriptionScreen()),
       GoRoute(path: '/masters/manage', builder: (context, state) => const MasterManagementScreen()),
     ],
   );

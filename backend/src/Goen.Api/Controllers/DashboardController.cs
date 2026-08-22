@@ -26,7 +26,8 @@ public class DashboardController : ControllerBase
         var userId = User.GetUserId();
         var orgId = User.GetOrgId();
 
-        var persons = _db.PersonsRead.Where(r => r.OwnerUserId == userId && r.OrgId == orgId);
+        // 自分自身の人物カルテ（is_self）は人脈の連絡先ではないため、集計対象から除外する
+        var persons = _db.PersonsRead.Where(r => r.OwnerUserId == userId && r.OrgId == orgId && !r.IsSelf);
 
         var totalCount = await persons.CountAsync(ct);
 
@@ -48,12 +49,17 @@ public class DashboardController : ControllerBase
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        var upcomingContacts = await _db.NextActions
-            .Where(a => a.Status == "open" && a.DueDate != null)
-            .Join(persons, a => a.PersonId, r => r.PersonId, (a, r) => new { Action = a, Person = r })
-            .OrderBy(x => x.Action.DueDate)
-            .Take(5)
-            .Select(x => new UpcomingContactItem(x.Person.PersonId, x.Person.FullName, x.Action.Content, x.Action.DueDate))
+        // 「近い接点予定」＝今日から1週間以内に予定されている接点記録（Contacts.OccurredAtが未来日のもの）。
+        // 接点記録画面の日付選択では過去だけでなく最大365日先までの未来日も選べるため、
+        // 今後の予定として登録された接点をそのままここに反映する。
+        var todayStart = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+        var rangeEnd = todayStart.AddDays(7);
+        var upcomingContacts = await _db.Contacts
+            .Where(c => c.OccurredAt >= todayStart && c.OccurredAt <= rangeEnd)
+            .Join(persons, c => c.PersonId, r => r.PersonId, (c, r) => new { Contact = c, Person = r })
+            .OrderBy(x => x.Contact.OccurredAt)
+            .Take(20)
+            .Select(x => new UpcomingContactItem(x.Person.PersonId, x.Person.FullName, x.Contact.ContactType, x.Contact.OccurredAt, x.Contact.Place))
             .ToListAsync(ct);
 
         return Ok(new DashboardResponse(totalCount, industryBreakdown, occupationBreakdown, upcomingContacts));

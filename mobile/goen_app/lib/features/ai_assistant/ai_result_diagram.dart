@@ -69,7 +69,7 @@ class _AiResultDiagramState extends State<AiResultDiagram> {
                   painter: _DiagramEdgePainter(edges: layout.edges, center: center),
                 ),
                 _buildSelfNode(context, center),
-                for (final node in layout.nodes) _buildNode(context, node, center),
+                for (final node in layout.nodes) ..._buildNode(context, node, center),
               ],
             ),
           ),
@@ -103,7 +103,11 @@ class _AiResultDiagramState extends State<AiResultDiagram> {
     );
   }
 
-  Widget _buildNode(BuildContext context, _LayoutNode node, Offset center) {
+  // チップ（人物ノード本体）とキャプション（提案理由等）を別々のPositionedとして返す。
+  // 以前はColumnでキャプション＋チップをまとめて中心寄せしていたため、エッジの接続先（chipの中心）と
+  // 実際に画面へ表示されるchipの中心がずれ、線が人物ノードにしっかり繋がって見えない原因になっていた。
+  // チップ単体を`position`（エッジの接続先と同じ座標）で中心寄せすることで、線が必ずchipの中心に届くようにする。
+  List<Widget> _buildNode(BuildContext context, _LayoutNode node, Offset center) {
     final position = center + node.position;
 
     final chip = Container(
@@ -131,38 +135,46 @@ class _AiResultDiagramState extends State<AiResultDiagram> {
       ),
     );
 
-    return Positioned(
-      left: position.dx,
-      top: position.dy,
-      child: FractionalTranslation(
-        translation: const Offset(-0.5, -0.5),
-        child: GestureDetector(
-          onTap: () => widget.onPersonTap(node.personId),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (node.caption != null)
-                Tooltip(
-                  message: node.caption!,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                    constraints: const BoxConstraints(maxWidth: 130),
-                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(6)),
-                    child: Text(
-                      node.caption!,
-                      style: const TextStyle(fontSize: 10, color: Colors.black54),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+    return [
+      if (node.caption != null)
+        Positioned(
+          left: position.dx,
+          top: position.dy,
+          child: FractionalTranslation(
+            // dy=-1.0でキャプション自身の下端がposition.dyに揃うようにし、
+            // 内側のmarginでchipの上端（おおよそ半分の高さ分）より上に離す。
+            translation: const Offset(-0.5, -1.0),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              child: Tooltip(
+                message: node.caption!,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  constraints: const BoxConstraints(maxWidth: 130),
+                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(6)),
+                  child: Text(
+                    node.caption!,
+                    style: const TextStyle(fontSize: 10, color: Colors.black54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              chip,
-            ],
+              ),
+            ),
+          ),
+        ),
+      Positioned(
+        left: position.dx,
+        top: position.dy,
+        child: FractionalTranslation(
+          translation: const Offset(-0.5, -0.5),
+          child: GestureDetector(
+            onTap: () => widget.onPersonTap(node.personId),
+            child: chip,
           ),
         ),
       ),
-    );
+    ];
   }
 }
 

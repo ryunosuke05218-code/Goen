@@ -3,9 +3,9 @@
 | 項目 | 内容 |
 |---|---|
 | プロジェクト名 | GOEN（HUMAN NETWORK OS／人脈OS） |
-| 文書バージョン | 1.12 |
+| 文書バージョン | 1.14 |
 | 作成日 | 2026/07/20 |
-| 最終更新日 | 2026/08/15 |
+| 最終更新日 | 2026/08/19 |
 | 作成者 | 阿部竜之介 |
 | 対象要件 | 要件定義書 v1.2（5.6 データ要件、6 非機能要件） |
 
@@ -26,6 +26,8 @@
 | 1.10 | 2026/08/09 | 職種追加・業種／職種管理機能（F-030）を追加。`m_occupation_type`に`industry_code`（`m_industry`への任意FK）と`ix_occupation_type_industry`インデックスを新設（`migrations/0008_occupation_industry_link.sql`）。`m_industry`・`m_occupation_type`はいずれも静的マスタのため`h_*`履歴テーブルの列同期は不要。5.1節（`persons_read.industry_name`の導出元を職種経由に変更）・7.21節を更新 | 阿部 |
 | 1.11 | 2026/08/15 | F-034（AI指示・紹介文作成の質問／回答履歴）を追加。`ai_assistant_queries`（AI指示1回ごとの質問・回答・経路・ヒントをJSONBで保存）と`intro_letter_requests`（紹介文作成1回ごとの依頼条件・生成文面を保存、対象人物への`ON DELETE CASCADE`付きFK）を新設（`migrations/0009_ai_assistant_and_intro_letter_history.sql`）。いずれも`briefs`と同じ追記型ログでありUPDATE/DELETEを行わないため`h_*`履歴テーブルは持たない。6章・7.20節を更新 | 阿部 |
 | 1.12 | 2026/08/15 | F-038（AI自動リサーチ）を追加。`person_research_results`（氏名・会社名から検索した公開Web情報の要約と出典を人物1件につき最新1件保持）を新設（`migrations/0010_person_research_results.sql`）。`ai_person_cards`と異なり公開Web情報が根拠のため`sources`列を必須とし、世代管理は行わず上書き方式とした。6章・7.20節を更新 | 阿部 |
+| 1.13 | 2026/08/16 | 自分自身を表す人物カルテ（`persons.is_self`）を追加。ダッシュボードから自分の人物カルテを登録・編集でき、人物一覧では常に最上部に固定表示、ダッシュボードの集計（総登録人数・業種別/職種別の内訳）からは除外する（「自分」は人脈上の連絡先ではないため）。`(org_id, owner_user_id)`単位で最大1件に制限する部分ユニークインデックス（`ux_persons_owner_self`）を追加。集計・除外フィルタ用に`persons_read.is_self`も追加（`migrations/0011_persons_is_self.sql`。`h_persons`は列順維持のため再作成し履歴データは失われる、migration 0004/0007と同じ方針）。7.6節・7.16節を更新 | 阿部 |
+| 1.14 | 2026/08/19 | 自己登録（F-039）・パスワードリセット（F-040）・サブスクリプション課金（F-041）の土台を追加。①`password_reset_tokens`を新設し、パスワードリセットの6桁コードをハッシュ化して保存（`user_id`へのFK、`ON DELETE CASCADE`）。②`organizations`に契約状態列（`subscription_status`／`subscription_provider`／`subscription_plan_code`／`subscription_provider_customer_id`／`subscription_provider_subscription_id`／`subscription_current_period_end`／`trial_ends_at`）を追加。決済プロバイダ非依存の内部プランコード（`subscription_plan_code`）とプロバイダ種別（`subscription_provider`、開発初期は`stripe`、Google Play/App Store配布時は`google_play`／`app_store`へ移行想定）を分けて持たせる設計とした。新規組織は既定で`subscription_status='trialing'`とする（`migrations/0012_registration_password_reset_subscription.sql`。`h_organizations`は列順維持のため再作成し履歴データは失われる、migration 0004/0007/0011と同じ方針）。7.3節・7.20節を更新 | 阿部 |
 
 ---
 
@@ -376,6 +378,13 @@ erDiagram
 | org_name | text | NN | 組織名 |
 | parent_org_id | uuid | FK(self) | 上位組織ID |
 | plan_type | text | NN, CHECK | 契約区分（`personal` / `team` / `enterprise`） |
+| subscription_status | text | NN, CHECK, DEFAULT `trialing` | サブスク契約状態（`trialing` / `active` / `past_due` / `canceled` / `incomplete`、F-041） |
+| subscription_provider | text | | 決済プロバイダ（`stripe` / `google_play` / `app_store`）。未契約時はNULL |
+| subscription_plan_code | text | | プロバイダ非依存の内部プランコード（例：`standard_monthly`） |
+| subscription_provider_customer_id | text | | プロバイダ側の顧客ID（Stripe Customer ID等） |
+| subscription_provider_subscription_id | text | | プロバイダ側の契約ID（Stripe Subscription ID等） |
+| subscription_current_period_end | timestamptz | | 現在の契約期間終了日時 |
+| trial_ends_at | timestamptz | | トライアル終了日時 |
 
 ### 7.4 users（ユーザー）※共通カラムあり
 
@@ -427,8 +436,9 @@ erDiagram
 | last_contact_at | timestamptz | | 最終接触日時（F-012の未接触抽出に使用） |
 | introducer_person_id | uuid | FK(self) | 紹介者となった人物ID |
 | source_type | text | NN, CHECK | 登録経路（`card_ocr` / `manual` / `import` / `mutual_registration`）。`mutual_registration`はF-028により相手ユーザー側で自動生成されたことを示す |
+| is_self | boolean | NN, DEFAULT false | 自分自身を表す人物カルテか。人物一覧・ダッシュボードの集計からは除外し、人物一覧では常に最上部に固定表示する |
 
-主なインデックス：`(owner_user_id, last_contact_at DESC)`、`(org_id, company_id)`、`(full_name_kana)`、`(introducer_person_id)`、`(occupation_code)`（人脈図の階層グルーピング用）
+主なインデックス：`(owner_user_id, last_contact_at DESC)`、`(org_id, company_id)`、`(full_name_kana)`、`(introducer_person_id)`、`(occupation_code)`（人脈図の階層グルーピング用）、`(org_id, owner_user_id) WHERE is_self`（部分ユニークインデックス、1ユーザー最大1件に制限）
 
 ### 7.7 person_profiles（人物詳細）※共通カラムあり
 
@@ -623,6 +633,7 @@ erDiagram
 | open_action | jsonb | | 未完了の次回アクション（内容・期限） |
 | search_text | text | NN | 全文検索用の連結テキスト |
 | created_at | timestamptz | | 元の`persons.created_at`を非正規化（F-003の登録順ソート用。結合を避けるため） |
+| is_self | boolean | NN, DEFAULT false | `persons.is_self`を非正規化。人物一覧・ダッシュボードの集計クエリで除外するために保持 |
 | refreshed_at | timestamptz | NN | 再構築日時 |
 
 インデックス：`(owner_user_id, last_contact_at DESC)`、`(org_id, visibility)`、`search_text` への全文検索インデックス
@@ -701,6 +712,7 @@ pgvectorへの読み書きは追加のNuGetパッケージ（`Pgvector.EntityFra
 | `intro_letter_requests` | 紹介文作成（F-026）1回ごとの対象人物・要件・トーン等の条件・生成文面を`owner_user_id`単位で保持。添付ファイルはファイル名のみ記録（実体は保存しない）。紹介文作成の履歴（F-034）で参照。追記型 |
 | `person_research_results` | AI自動リサーチ（F-038）の結果。氏名・会社名から検索した公開Web情報の要約（`summary`）と出典（`sources`、`[{"title","url"}]`のJSONB配列）を人物1件につき最新1件のみ保持。`ai_person_cards`と異なり公開Web情報が根拠のため`sources`は必須、世代管理は行わず再実行のたびに上書き |
 | `auth_tokens` | リフレッシュトークン。ハッシュ値・端末情報・有効期限・失効日時を保持 |
+| `password_reset_tokens` | パスワードリセット（F-040）の6桁コード。`user_id`へのFK（`ON DELETE CASCADE`）、コードはハッシュ値（`code_hash`）のみ保存し平文は保持しない。有効期限（`expires_at`）・使用日時（`used_at`）を持つ。追記型（履歴テーブルなし） |
 | `ai_api_logs` | 外部AI API呼出ログ。API種別、モデル、トークン数、コスト、応答時間、成否。リスクR-003のコスト監視に使用 |
 | `import_jobs` | CSVインポートジョブ。ファイル名、件数、成功／失敗件数、エラー明細。移行（I-007の現行人脈管理グラフサイト、F-024のeightからのCSV移行）に共通で使用 |
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/providers.dart';
 
@@ -82,12 +83,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 12),
                       Text(_errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     ],
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _isSubmitting ? null : () => context.push('/forgot-password'),
+                        child: const Text('パスワードをお忘れですか？'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     FilledButton(
                       onPressed: _isSubmitting ? null : _submit,
                       child: _isSubmitting
                           ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text('ログイン'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _isSubmitting ? null : () => context.push('/register'),
+                      child: const Text('アカウントをお持ちでない方はこちら（新規登録）'),
                     ),
                   ],
                 ),

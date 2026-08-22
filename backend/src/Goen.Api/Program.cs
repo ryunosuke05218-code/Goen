@@ -1,4 +1,5 @@
 using System.Text;
+using Goen.Infrastructure.Billing;
 using Goen.Infrastructure.ExternalAi;
 using Goen.Infrastructure.Messaging;
 using Goen.Infrastructure.Persistence;
@@ -18,6 +19,8 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptio
 builder.Services.Configure<AiChatOptions>(builder.Configuration.GetSection(AiChatOptions.SectionName));
 builder.Services.Configure<AiEmbeddingOptions>(builder.Configuration.GetSection(AiEmbeddingOptions.SectionName));
 builder.Services.Configure<WebSearchOptions>(builder.Configuration.GetSection(WebSearchOptions.SectionName));
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.Configure<SubscriptionOptions>(builder.Configuration.GetSection(SubscriptionOptions.SectionName));
 
 // ---- DB (PostgreSQL / EF Core) ----
 builder.Services.AddDbContext<GoenDbContext>(options =>
@@ -62,6 +65,30 @@ builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<PersonReadSyncService>();
 builder.Services.AddScoped<MasterDataService>();
 builder.Services.AddScoped<NetworkGraphService>();
+
+// パスワードリセット等のメール送信（要件Q-004拡張）。本番はSendGridを使用する。
+// ApiKey未設定時はモック実装（ログ出力のみ、実送信しない）にフォールバックする。
+var emailOptions = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new EmailOptions();
+if (!string.Equals(emailOptions.Provider, "mock", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddHttpClient<IEmailService, SendGridEmailService>();
+}
+else
+{
+    builder.Services.AddScoped<IEmailService, MockEmailService>();
+}
+
+// サブスク課金。開発中はStripeを想定するが、App Store/Google Play配布時はストアのIAPへ切替が
+// 規約上必須になるため、ISubscriptionServiceの実装差し替えのみで対応できる構成にしてある。
+var subscriptionOptions = builder.Configuration.GetSection(SubscriptionOptions.SectionName).Get<SubscriptionOptions>() ?? new SubscriptionOptions();
+if (!string.Equals(subscriptionOptions.Provider, "mock", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddScoped<ISubscriptionService, StripeSubscriptionService>();
+}
+else
+{
+    builder.Services.AddScoped<ISubscriptionService, MockSubscriptionService>();
+}
 
 // F-038 AI自動リサーチ: Web検索（I-006）はTavilyを使用する。ApiKey未設定時はモック（常に0件）にフォールバックする。
 var webSearchOptions = builder.Configuration.GetSection(WebSearchOptions.SectionName).Get<WebSearchOptions>() ?? new WebSearchOptions();

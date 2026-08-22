@@ -62,11 +62,15 @@ public class PersonsController : ControllerBase
 
     // F-004（簡易版）: persons_read への氏名・要約の部分一致検索。曖昧検索（RAG）は将来のフェーズで拡張する。
     // F-003: sortで並び順を切り替え、総登録人数（totalCount、絞り込み後の件数）を併せて返す。
+    // チーム共有・閲覧権限管理（F-019）は未実装のため、ダッシュボード（F-029）・人脈マップ（F-006）と同様に
+    // 自分が登録した人物（OwnerUserId）のみを対象とする。他ユーザーの人脈は含めない。
     [HttpGet]
     public async Task<ActionResult<PersonListResponse>> List([FromQuery] string? q, [FromQuery] string? sort, CancellationToken ct)
     {
+        var userId = User.GetUserId();
         var orgId = User.GetOrgId();
-        var query = _db.PersonsRead.Where(r => r.OrgId == orgId);
+        // 自分自身の人物カルテ（is_self）は通常の登録人物とは別枠（GetMe）で扱うため、一覧・総登録人数には含めない。
+        var query = _db.PersonsRead.Where(r => r.OrgId == orgId && r.OwnerUserId == userId && !r.IsSelf);
 
         if (!string.IsNullOrWhiteSpace(q))
         {
@@ -112,11 +116,38 @@ public class PersonsController : ControllerBase
         return Ok(ToDetail(person, latestCard, industryName));
     }
 
+    // ダッシュボードから自分自身の人物カルテ（F-002拡張）を登録・編集するための取得エンドポイント。
+    // 未登録の場合はnullを返す（人物一覧・ダッシュボードにはボタンで登録を促す）。
+    [HttpGet("me")]
+    public async Task<ActionResult<PersonDetail?>> GetMe(CancellationToken ct)
+    {
+        var person = await _db.Persons
+            .Include(p => p.Company)
+            .Include(p => p.Occupation)
+            .Include(p => p.Profile)
+            .Include(p => p.IntroducerPerson)
+            .FirstOrDefaultAsync(p => p.OrgId == User.GetOrgId() && p.OwnerUserId == User.GetUserId() && p.IsSelf, ct);
+
+        if (person is null) return Ok(null);
+
+        var latestCard = await _db.AiPersonCards
+            .Where(c => c.PersonId == person.PersonId && c.IsLatest)
+            .FirstOrDefaultAsync(ct);
+
+        var industryName = await GetIndustryNameAsync(person, ct);
+        return Ok(ToDetail(person, latestCard, industryName));
+    }
+
     [HttpPost]
     public async Task<ActionResult<PersonDetail>> Create(CreatePersonRequest request, CancellationToken ct)
     {
         var userId = User.GetUserId();
         var orgId = User.GetOrgId();
+
+        if (request.IsSelf && await _db.Persons.AnyAsync(p => p.OrgId == orgId && p.OwnerUserId == userId && p.IsSelf, ct))
+        {
+            return Conflict(new { message = "自分の人物カルテは既に登録されています。編集画面から更新してください。" });
+        }
 
         Guid? companyId = null;
         if (!string.IsNullOrWhiteSpace(request.CompanyName))
@@ -148,6 +179,7 @@ public class PersonsController : ControllerBase
             OccupationCode = occupationCode,
             SourceType = request.SourceType,
             IntroducerPersonId = introducerPersonId,
+            IsSelf = request.IsSelf,
             FirstMetAt = DateOnly.FromDateTime(DateTime.UtcNow),
             MetPlace = request.MetPlace,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -183,8 +215,9 @@ public class PersonsController : ControllerBase
         }
 
         // F-028: 登録した人物がGOENの既存ユーザーだと本人確認できる場合、相手側にも自分を自動登録する
+        // （自分自身の人物カルテ（IsSelf）は「相手」ではないため対象外とする）
         Guid? mutuallyRegisteredPersonId = null;
-        if (!string.IsNullOrWhiteSpace(request.Email))
+        if (!request.IsSelf && !string.IsNullOrWhiteSpace(request.Email))
         {
             mutuallyRegisteredPersonId = await TryCreateMutualRegistrationAsync(request.Email, userId, ct);
         }
@@ -997,7 +1030,7 @@ public class PersonsController : ControllerBase
             ParseSnsLinks(person.Profile?.SnsAccountsJson),
             card?.Summary, card?.Business, card?.Issues, card?.Hobby,
             person.IntroducerPersonId, person.IntroducerPerson?.FullName,
-            sourceUrls, sourceFiles, card?.InputContactIds.Length ?? 0);
+            sourceUrls, sourceFiles, card?.InputContactIds.Length ?? 0, person.IsSelf);
     }
 
     // F-032: AI要約生成時に参照したHPリンク・資料ファイル（InputSourcesJson）を、カルテ画面表示用にURL/ファイル名へ分離する

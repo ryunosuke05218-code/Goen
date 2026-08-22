@@ -3,10 +3,10 @@
 | 項目 | 内容 |
 |---|---|
 | プロジェクト名 | GOEN（HUMAN NETWORK OS／人脈OS） |
-| 文書バージョン | 1.15 |
+| 文書バージョン | 1.16 |
 | 作成日 | 2026/07/25 |
 | 作成者 | 阿部竜之介 |
-| 対象要件 | 要件定義書 v1.18、テーブル設計書 v1.12 |
+| 対象要件 | 要件定義書 v1.19、テーブル設計書 v1.13 |
 
 ## 改訂履歴
 
@@ -28,6 +28,7 @@
 | 1.13 | 2026/08/15 | 3件のUI改善・新機能を実装。①人脈マップ（S-009）を開いた際に「自分」が画面中央に来るよう`TransformationController`で初期スクロール位置を計算し、業種・職種・会社名の全グループを折りたたんだ状態で開始するよう変更（従来は全展開・スクロール位置は既定の左上のままだった）。②AI指示（S-017、F-025）の経路・関連人物ヒントに、リスト表示に加えて図表示（`AiResultDiagram`）を追加し`SegmentedButton`で切替可能にした。図は人脈マップと同じ「自分を中心に左右2方向・分岐ごとに固定色」の視覚言語を踏襲し、経路は実線、ヒントは点線（`PathMetric`によるダッシュ描画）で区別する。③F-034（AI指示・紹介文作成の質問／回答履歴）を新設。`ai_assistant_queries`／`intro_letter_requests`の2テーブルを追加し（`migrations/0009_ai_assistant_and_intro_letter_history.sql`、テーブル設計書v1.11）、`AiAssistantService.AskAsync`・`IntroLetterService.GenerateAsync`それぞれの応答生成後に`owner_user_id`単位で履歴を保存（保存失敗は個別にtry-catchし主機能をブロックしない）。`GET /api/ai-assistant/history`・`GET /api/intro-letters/history`を新設し、各画面のAppBarから履歴一覧→詳細（読み返し専用、入力フォームへの復元なし）へ遷移できるようにした。AI指示の履歴詳細は現在の相談結果と同じ`AssistantResultView`（旧`_ResultView`を公開化）を再利用し、リスト／図表示の切替も履歴側で使える。3.1節・6章・7章・8章・9章を更新 | 阿部 |
 | 1.14 | 2026/08/15 | F-038（AI自動リサーチ）を新設・実装。氏名・会社名からAIがWeb検索し公開情報の参考情報を生成する機能で、既存のAI要約（F-010）等とは異なりユーザー自身のデータではなく公開Web情報を根拠にする。`IWebSearchService`（検索API、要件I-006）を新設し、プロバイダ未選定のため`MockWebSearchService`（常に0件を返す）のみ登録。`PersonResearchService`（`Goen.Infrastructure/Research/`）が検索結果をLLM（既存の`ILlmService.ComposeTextAsync`を流用）に渡し、「検索結果にない事実の創作禁止」「同姓同名の可能性への言及」を強制するプロンプトで要約を生成する。検索結果0件時はLLMを呼ばず「見つからなかった」旨を固定文で返す（`AiAssistantService.ComposeAnswerAsync`と同じ考え方）。結果は`person_research_results`（人物1件につき最新1件、`migrations/0010_person_research_results.sql`、テーブル設計書v1.12）に保存。`POST /api/persons/{id}/research/generate`・`GET /api/persons/{id}/research`を新設し、会社名未設定の人物は400を返す（同姓同名誤認識を避けるため）。人物カルテ（S-006）にAI要約と同様の手動トリガー方式のセクションを追加し、生成結果には出典一覧と「公開Web情報をもとにした参考情報」の注記を常時表示する。3.1節・6章・7章・8章・9章を更新 | 阿部 |
 | 1.15 | 2026/08/16 | Q-004を解消し2件を実装。①`IWebSearchService`の実装として`TavilyWebSearchService`（Tavily Search API、`POST https://api.tavily.com/search`）を追加。`WebSearchOptions`（`WebSearch:Provider`/`WebSearch:ApiKey`）を新設し、Provider≠mockのときのみ`AddHttpClient<IWebSearchService, TavilyWebSearchService>()`を登録する（他のAIプロバイダ設定と同じmock/real切替パターン）。②音声認識（I-002）を`LlmSpeechToTextService`で実装。名刺OCR（`LlmVisionOcrService`）と同じ考え方で、専用の音声認識APIを使わず`Ai:Chat`のマルチモーダルLLMへ音声をそのまま渡す。OpenAI互換のchat completionsにGeminiが対応する`input_audio`コンテンツパート（`{"type":"input_audio","input_audio":{"data":Base64,"format":"wav"等}}`）を新設し、MIMEタイプから`format`値へマッピングする。`ISpeechToTextService.TranscribeAsync`に`mimeType`引数を追加し、`PersonsController.UploadVoiceMemo`から`IFormFile.ContentType`を渡すよう変更。いずれもAi:Chat:Providerの条件分岐に相乗りする形で登録し、APIキー未設定時は既存のモック実装にフォールバックする。3.1節・6章・9章を更新 | 阿部 |
+| 1.16 | 2026/08/19 | 自己登録（F-039）・パスワードリセット（F-040）・サブスクリプション課金（F-041）を新設・実装（要件定義書v1.19）。`AuthController`に`POST /api/auth/register`（個人用組織を新規作成し唯一のユーザーとして登録）・`POST /api/auth/forgot-password`（6桁コードをハッシュ化して`password_reset_tokens`に保存し`IEmailService`で送信、ユーザー列挙防止のため常に同一レスポンス）・`POST /api/auth/reset-password`（コード検証、成功時は該当ユーザーの全リフレッシュトークンを失効）を追加。`IEmailService`（`MockEmailService`/`SendGridEmailService`）、`ISubscriptionService`（`MockSubscriptionService`/`StripeSubscriptionService`）をそれぞれ新設し、`BillingController`（`GET /api/billing/subscription`、`POST /api/billing/checkout`、`POST /api/billing/portal`）・`StripeWebhookController`（`POST /api/billing/webhook`）を追加。`organizations`に契約状態列（`subscription_status`/`subscription_provider`/`subscription_plan_code`/`subscription_provider_customer_id`/`subscription_provider_subscription_id`/`subscription_current_period_end`/`trial_ends_at`）を追加（`migrations/0012`、テーブル設計書v1.13）。モバイル側に新規登録・パスワードをお忘れの場合・パスワード再設定・プラン画面（S-020〜S-023）を追加し、`go_router`の未ログイン時アクセス許可ルートに反映。2.4節（新設）・8章・9章を更新 | 阿部 |
 
 ---
 
@@ -98,6 +99,18 @@ graph TD
 
 「テスト環境」を独立して設けていない（開発＝モックまたはOllama、本番＝クラウドAPIの2区分）。CI等で自動テストを行う場合はモック（`mock`）を使用し、外部ネットワーク・GPUに依存しない構成とする。
 
+### 2.4 メール配信・決済プロバイダ構成（F-039〜F-041）
+
+AI以外の外部サービス（メール配信・決済）についても、AIプロバイダ（4章）と同じ「`Provider`設定＋DI分岐」のパターンで実装し、APIキー未設定時はモック実装にフォールバックする。
+
+| 項目 | モック（未接続） | 本番想定 |
+|---|---|---|
+| メール配信（パスワードリセット、F-040） | `MockEmailService`（ログ出力のみ、実送信しない） | `SendGridEmailService`（SendGrid API）。有償・無制限の他プロバイダへの切替は`IEmailService`の実装差し替えのみで対応できる |
+| 決済（サブスクリプション、F-041） | `MockSubscriptionService`（ブラウザ遷移を伴わず即座に契約完了として組織の契約状態を更新） | `StripeSubscriptionService`（Stripe Checkout・Billing Portal・Webhook）。Google Play Store／Apple App Store配布時はストアのIAPへの切替が規約上必須となるため、`ISubscriptionService`は特定の決済プロバイダに依存しない抽象とし、将来`GooglePlaySubscriptionService`／`AppStoreSubscriptionService`を追加する際も`BillingController`側の変更は不要になる設計とした |
+| 切替方法 | 既定値（`Email:Provider`/`Subscription:Provider` = `mock`） | User Secretsに`sendgrid`/`stripe`と各`ApiKey`（決済は`WebhookSecret`・`PlanPriceIds`も）を設定 |
+
+サブスクの契約状態変更は、Checkout完了時のレスポンスではなくStripe Webhook（`checkout.session.completed`／`customer.subscription.updated`／`customer.subscription.deleted`）の非同期受信をもって確定させる（`StripeWebhookController`）。Webhookは`Stripe-Signature`ヘッダの署名検証（`EventUtility.ConstructEvent`）により正当な送信元であることを確認したうえで処理し、JWT認証は使用しない（`[AllowAnonymous]`）。
+
 ---
 
 ## 3. AI利用箇所
@@ -154,11 +167,11 @@ Groq・Ollama・Gemini・OpenAIはいずれも**OpenAI互換のAPI形式**（`/v
 | キー | 既定値（appsettings.json） | 説明 |
 |---|---|---|
 | `Ai:Chat:Provider` | `mock` | `mock` / `ollama` / `groq` / `gemini` / `openai` |
-| `Ai:Chat:BaseUrl` | `http://localhost:11434/v1` | チャットAPIのベースURL |
+| `Ai:Chat:BaseUrl` | `http://192.168.1.2:11434/v1` | チャットAPIのベースURL |
 | `Ai:Chat:Model` | `gemma3:4b` | モデル名 |
 | `Ai:Chat:ApiKey` | 空 | User Secretsで設定する（Ollamaは任意の値でよい） |
 | `Ai:Embedding:Provider` | `mock` | `mock` / `ollama` / `openai` |
-| `Ai:Embedding:BaseUrl` | `http://localhost:11434/v1` | 埋め込みAPIのベースURL |
+| `Ai:Embedding:BaseUrl` | `http://192.168.1.2:11434/v1` | 埋め込みAPIのベースURL |
 | `Ai:Embedding:Model` | `jeffh/intfloat-multilingual-e5-large-instruct:q8_0` | モデル名（Ollamaはタグ必須） |
 | `Ai:Embedding:ApiKey` | 空 | User Secretsで設定する |
 | `Ai:Embedding:Dimension` | `1024` | 埋め込みベクトルの次元数。`rag_chunks.embedding`の型と一致させる |
@@ -344,7 +357,11 @@ sequenceDiagram
 
 | 画面ID | 画面名 | ルート | 実装状況 |
 |---|---|---|---|
-| S-001 | ログイン | `/login` | 実装済み（メール・パスワードのみ）。生体認証ログインは未実装（設計のみ、要件定義書F-001参照） |
+| S-001 | ログイン | `/login` | 実装済み（メール・パスワードのみ）。生体認証ログインは未実装（設計のみ、要件定義書F-001参照）。新規登録（S-020）・パスワードをお忘れの場合（S-021）への導線を実装済み |
+| S-020 | 新規登録 | `/register` | 実装済み（F-039） |
+| S-021 | パスワードをお忘れの場合 | `/forgot-password` | 実装済み（F-040） |
+| S-022 | パスワード再設定 | `/reset-password` | 実装済み（F-040）。前画面（S-021）からメールアドレスを引き継ぐ（`extra`） |
+| S-023 | プラン・お支払い | `/settings/subscription` | 実装済み（F-041）。設定画面（S-015）から遷移 |
 | S-002 | ホーム | `/home` | 実装済み |
 | S-003 | 名刺撮影 | `/persons/new/card` | 実装済み（OCRはマルチモーダルチャットLLM、開発環境はgemma3:4b） |
 | S-004 | 登録内容確認 | `/persons/new/confirm` | 実装済み。音声文字起こし入力とAIによる登録項目自動反映（F-007拡張）は未実装（設計のみ） |
@@ -372,6 +389,13 @@ Phase2以降の画面（S-010〜S-013、S-016）は未実装。
 | メソッド／パス | 概要 | AI使用 |
 |---|---|---|
 | `POST /api/auth/login`、`/refresh` | 認証（F-001） | なし |
+| `POST /api/auth/register` | 自己登録（F-039）。個人用組織（`plan_type='personal'`）を新規作成し、その唯一のユーザーとして登録。成功時はログインと同様にトークンを発行する | なし |
+| `POST /api/auth/forgot-password` | パスワードリセットのコード送信（F-040）。該当ユーザーの有無に関わらず常に同一レスポンスを返す。SendGrid（本番）／ログ出力（モック）で送信 | なし |
+| `POST /api/auth/reset-password` | パスワードリセットの実行（F-040）。コード検証成功時、新しいパスワードを設定し既存の全リフレッシュトークンを失効させる | なし |
+| `GET /api/billing/subscription` | 契約状態取得（F-041） | なし |
+| `POST /api/billing/checkout` | チェックアウトセッション作成（F-041）。Stripeのホスト型ページURLを返す（モック環境では空文字を返し即時契約完了として扱う） | なし |
+| `POST /api/billing/portal` | カスタマーポータルセッション作成（F-041）。お支払い方法変更・解約を行うStripeページURLを返す | なし |
+| `POST /api/billing/webhook` | Stripe Webhook受信（F-041）。`Stripe-Signature`署名検証を行い、契約状態変更を`organizations`へ反映する。JWT認証は使用しない（`[AllowAnonymous]`） | なし |
 | `GET/POST/PUT/DELETE /api/persons` | 人物CRUD（F-002/F-003）。ソート順指定・総件数取得を含む（未実装）。登録時、入力メールアドレスが既存ユーザーと一致する場合は相手側への相互人脈登録（F-028、未実装）を行う。業種・職種は自由入力名称（`IndustryName`/`OccupationName`）で受け取り、`MasterDataService`が名称解決・未登録時の即時登録を行う（F-030） | なし（会社名一致・紹介者指定の自動関係生成、業種・職種の名称解決を含む） |
 | `POST /api/persons/ocr-draft` | 名刺OCR（F-007）。音声文字起こしテキストが併せて送信された場合はOCR結果と統合する（未実装） | チャットLLM（マルチモーダル、`LlmVisionOcrService`） |
 | `POST /api/persons/{id}/contacts` | 接点登録（F-011、日時・場所・メモ入力可） | なし |

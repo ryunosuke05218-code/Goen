@@ -47,7 +47,8 @@ public record PersonDetail(
     // F-032: AI要約の参照元表示。生成時に参照したHPリンク・資料ファイル・接点メモ件数
     IReadOnlyList<string> AiSummarySourceUrls,
     IReadOnlyList<string> AiSummarySourceFiles,
-    int AiSummaryContactCount);
+    int AiSummaryContactCount,
+    bool IsSelf);
 
 public record CreatePersonRequest(
     string FullName,
@@ -65,7 +66,8 @@ public record CreatePersonRequest(
     string? MetPlace = null,
     IReadOnlyList<SnsLink>? SnsLinks = null,
     string SourceType = "manual",
-    Guid? IntroducerPersonId = null);
+    Guid? IntroducerPersonId = null,
+    bool IsSelf = false);
 
 public record UpdatePersonRequest(
     string FullName,

@@ -15,7 +15,7 @@ public class AiEmbeddingOptions
     public const string SectionName = "Ai:Embedding";
 
     public string Provider { get; set; } = "mock"; // mock / ollama / openai
-    public string BaseUrl { get; set; } = "http://localhost:11434/v1";
+    public string BaseUrl { get; set; } = "http://192.168.1.2:11434/v1";
     public string Model { get; set; } = "jeffh/intfloat-multilingual-e5-large-instruct:q8_0"; // タグ省略不可（:latestは存在しない）
     public string ApiKey { get; set; } = "";
     public int Dimension { get; set; } = 1024;

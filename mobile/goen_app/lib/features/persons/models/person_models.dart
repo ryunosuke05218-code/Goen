@@ -140,6 +140,7 @@ class PersonDetail {
     this.aiSummarySourceUrls = const [],
     this.aiSummarySourceFiles = const [],
     this.aiSummaryContactCount = 0,
+    this.isSelf = false,
   });
 
   final String personId;
@@ -169,6 +170,7 @@ class PersonDetail {
   final List<String> aiSummarySourceUrls;
   final List<String> aiSummarySourceFiles;
   final int aiSummaryContactCount;
+  final bool isSelf;
 
   factory PersonDetail.fromJson(Map<String, dynamic> json) => PersonDetail(
         personId: json['personId'] as String,
@@ -199,6 +201,7 @@ class PersonDetail {
         aiSummarySourceUrls: (json['aiSummarySourceUrls'] as List? ?? []).cast<String>(),
         aiSummarySourceFiles: (json['aiSummarySourceFiles'] as List? ?? []).cast<String>(),
         aiSummaryContactCount: json['aiSummaryContactCount'] as int? ?? 0,
+        isSelf: json['isSelf'] as bool? ?? false,
       );
 }
 

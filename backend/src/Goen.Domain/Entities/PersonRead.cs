@@ -7,6 +7,7 @@ public class PersonRead
     public Guid OrgId { get; set; }
     public Guid OwnerUserId { get; set; }
     public string Visibility { get; set; } = null!;
+    public bool IsSelf { get; set; }
     public string FullName { get; set; } = null!;
     public string? FullNameKana { get; set; }
     public string? CompanyName { get; set; }

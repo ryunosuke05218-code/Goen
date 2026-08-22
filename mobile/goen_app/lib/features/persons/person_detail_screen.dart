@@ -54,17 +54,22 @@ class PersonDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('人物カルテ'),
         actions: [
-          if (detailAsync.value case final person?)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'カルテを編集',
-              onPressed: () async {
-                final updated = await context.push<bool>('/persons/$personId/edit', extra: person);
-                if (updated == true) {
-                  ref.invalidate(personDetailProvider(personId));
-                }
-              },
-            ),
+          // データ取得中はIconButtonごと出し入れせず無効化するだけに留める。ページ遷移（Hero）の
+          // アニメーション中にAppBarの子要素数が変化すると、ごく稀にFlutter側の要素ツリーの
+          // 整合性が崩れ「一時的にエラー画面が表示される」不具合の原因になりうるため。
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'カルテを編集',
+            onPressed: detailAsync.value == null
+                ? null
+                : () async {
+                    final person = detailAsync.value!;
+                    final updated = await context.push<bool>('/persons/$personId/edit', extra: person);
+                    if (updated == true) {
+                      ref.invalidate(personDetailProvider(personId));
+                    }
+                  },
+          ),
           IconButton(
             icon: const Icon(Icons.hub_outlined),
             tooltip: '人脈グラフを見る',
@@ -271,22 +276,11 @@ class PersonDetailScreen extends ConsumerWidget {
                   if (contacts.isEmpty) {
                     return const Padding(padding: EdgeInsets.all(8), child: Text('まだ接点が記録されていません'));
                   }
-                  return Column(
-                    children: contacts
-                        .map((c) => ListTile(
-                              leading: const Icon(Icons.event_note_outlined),
-                              title: Text(_contactTypeLabel(c.contactType)),
-                              subtitle: Text('${c.occurredAt.toLocal()}'.split('.').first + (c.place != null ? ' / ${c.place}' : '')),
-                              trailing: c.note != null ? const Icon(Icons.notes, size: 18) : null,
-                              onTap: () async {
-                                await context.push(
-                                  '/persons/$personId/contacts/${c.contactId}',
-                                  extra: (c, person.fullName),
-                                );
-                                ref.invalidate(personContactsProvider(personId));
-                              },
-                            ))
-                        .toList(),
+                  return _ContactHistorySection(
+                    personId: personId,
+                    personName: person.fullName,
+                    contacts: contacts,
+                    onContactUpdated: () => ref.invalidate(personContactsProvider(personId)),
                   );
                 },
               ),
@@ -296,6 +290,10 @@ class PersonDetailScreen extends ConsumerWidget {
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
+        // person_list_screen等の別画面のFABとデフォルトタグが衝突し、画面遷移アニメーション中に
+        // 「multiple heroes share the same tag」で例外(場合によりクラッシュ)になるのを防ぐ。
+        // 同じ画面が人物詳細→関連人物の詳細のように多重に積まれても衝突しないようpersonIdを含める。
+        heroTag: 'person_detail_fab_$personId',
         icon: const Icon(Icons.add),
         label: const Text('接点を記録'),
         onPressed: () async {
@@ -334,6 +332,148 @@ String _contactTypeLabel(String type) => switch (type) {
       'event' => 'イベント同席',
       _ => 'その他',
     };
+
+enum _ContactSortOrder { newestFirst, oldestFirst }
+
+// F-011拡張: 接点履歴を種別・キーワード（メモ・場所）で絞り込み、日時の新しい/古い順で並び替えられるようにする。
+// 件数は多くても数十〜百件程度のため、サーバー側は追加せずクライアント側でフィルタ・ソートする。
+class _ContactHistorySection extends StatefulWidget {
+  const _ContactHistorySection({
+    required this.personId,
+    required this.personName,
+    required this.contacts,
+    required this.onContactUpdated,
+  });
+
+  final String personId;
+  final String personName;
+  final List<ContactItem> contacts;
+  final VoidCallback onContactUpdated;
+
+  @override
+  State<_ContactHistorySection> createState() => _ContactHistorySectionState();
+}
+
+class _ContactHistorySectionState extends State<_ContactHistorySection> {
+  final _searchController = TextEditingController();
+  final Set<String> _typeFilter = {};
+  _ContactSortOrder _sortOrder = _ContactSortOrder.newestFirst;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<ContactItem> get _filteredContacts {
+    final query = _searchController.text.trim().toLowerCase();
+    var result = widget.contacts.where((c) {
+      if (_typeFilter.isNotEmpty && !_typeFilter.contains(c.contactType)) return false;
+      if (query.isEmpty) return true;
+      final haystack = [
+        _contactTypeLabel(c.contactType),
+        c.place ?? '',
+        c.note ?? '',
+      ].join(' ').toLowerCase();
+      return haystack.contains(query);
+    }).toList();
+
+    result.sort((a, b) => _sortOrder == _ContactSortOrder.newestFirst
+        ? b.occurredAt.compareTo(a.occurredAt)
+        : a.occurredAt.compareTo(b.occurredAt));
+    return result;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filteredContacts;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        TextField(
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'メモ・場所で検索',
+            prefixIcon: const Icon(Icons.search, size: 20),
+            suffixIcon: _searchController.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => setState(() => _searchController.clear()),
+                  ),
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final type in _contactTypeOptions)
+                    FilterChip(
+                      label: Text(_contactTypeLabel(type), style: const TextStyle(fontSize: 12)),
+                      visualDensity: VisualDensity.compact,
+                      selected: _typeFilter.contains(type),
+                      onSelected: (selected) => setState(() {
+                        if (selected) {
+                          _typeFilter.add(type);
+                        } else {
+                          _typeFilter.remove(type);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+            PopupMenuButton<_ContactSortOrder>(
+              tooltip: '並び替え',
+              icon: const Icon(Icons.sort),
+              initialValue: _sortOrder,
+              onSelected: (order) => setState(() => _sortOrder = order),
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: _ContactSortOrder.newestFirst, child: Text('新しい順')),
+                PopupMenuItem(value: _ContactSortOrder.oldestFirst, child: Text('古い順')),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (filtered.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text('条件に一致する接点履歴がありません', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          )
+        else
+          Column(
+            children: filtered
+                .map((c) => ListTile(
+                      leading: const Icon(Icons.event_note_outlined),
+                      title: Text(_contactTypeLabel(c.contactType)),
+                      subtitle: Text('${c.occurredAt.toLocal()}'.split('.').first + (c.place != null ? ' / ${c.place}' : '')),
+                      trailing: c.note != null ? const Icon(Icons.notes, size: 18) : null,
+                      onTap: () async {
+                        await context.push(
+                          '/persons/${widget.personId}/contacts/${c.contactId}',
+                          extra: (c, widget.personName),
+                        );
+                        widget.onContactUpdated();
+                      },
+                    ))
+                .toList(),
+          ),
+      ],
+    );
+  }
+}
 
 // F-011 接点履歴の記録フォーム: 種別・場所・何を話したかのメモを入力してから登録する
 class _ContactFormSheet extends ConsumerStatefulWidget {

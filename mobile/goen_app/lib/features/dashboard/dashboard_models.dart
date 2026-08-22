@@ -14,25 +14,28 @@ class OccupationCount {
       );
 }
 
-/// F-029: 次回アクション（次回接点予定）。タップで対象人物のカルテ（接点履歴）へ遷移する。
+/// F-029: 今日から1週間以内に予定されている接点記録。タップで対象人物のカルテ（接点履歴）へ遷移する。
 class UpcomingContact {
   UpcomingContact({
     required this.personId,
     required this.personName,
-    required this.content,
-    this.dueDate,
+    required this.contactType,
+    required this.occurredAt,
+    this.place,
   });
 
   final String personId;
   final String personName;
-  final String content;
-  final DateTime? dueDate;
+  final String contactType;
+  final DateTime occurredAt;
+  final String? place;
 
   factory UpcomingContact.fromJson(Map<String, dynamic> json) => UpcomingContact(
         personId: json['personId'] as String,
         personName: json['personName'] as String,
-        content: json['content'] as String,
-        dueDate: json['dueDate'] == null ? null : DateTime.parse(json['dueDate'] as String),
+        contactType: json['contactType'] as String,
+        occurredAt: DateTime.parse(json['occurredAt'] as String).toLocal(),
+        place: json['place'] as String?,
       );
 }
 

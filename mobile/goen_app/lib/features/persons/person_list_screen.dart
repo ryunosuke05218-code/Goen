@@ -28,6 +28,7 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
   Widget build(BuildContext context) {
     final params = (query: _query, sort: _sort);
     final personsAsync = ref.watch(personListProvider(params));
+    final selfAsync = ref.watch(selfPersonProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -68,6 +69,35 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
               ),
             ),
           ),
+          // 自分の人物カルテは通常の登録人物と混ざらないよう、検索・並べ替えの対象外として常に最上部に固定表示する。
+          selfAsync.when(
+            loading: () => const SizedBox.shrink(),
+            error: (err, st) => const SizedBox.shrink(),
+            data: (self) {
+              if (self == null) return const SizedBox.shrink();
+              return Material(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    child: Icon(Icons.badge_outlined, color: Theme.of(context).colorScheme.onPrimary),
+                  ),
+                  title: Text(self.fullName),
+                  subtitle: Text([self.companyName, self.jobTitle]
+                      .whereType<String>()
+                      .where((e) => e.isNotEmpty)
+                      .join(' / ')),
+                  trailing: Chip(
+                    label: const Text('自分', style: TextStyle(fontSize: 11)),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onTap: () => context.push('/persons/${self.personId}'),
+                ),
+              );
+            },
+          ),
+          selfAsync.value != null ? const Divider(height: 1) : const SizedBox.shrink(),
           Expanded(
             child: personsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -111,6 +141,7 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'person_list_fab',
         onPressed: () => context.push('/persons/new'),
         child: const Icon(Icons.add),
       ),

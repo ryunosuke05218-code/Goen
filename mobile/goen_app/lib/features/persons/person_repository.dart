@@ -10,6 +10,11 @@ final personRepositoryProvider = Provider<PersonRepository>((ref) {
   return PersonRepository(ref.watch(apiClientProvider).dio);
 });
 
+// 自分自身の人物カルテ（isSelf）。ダッシュボード・人物一覧の双方から参照する共有プロバイダ。
+final selfPersonProvider = FutureProvider.autoDispose<PersonDetail?>((ref) {
+  return ref.watch(personRepositoryProvider).getMe();
+});
+
 class PersonRepository {
   PersonRepository(this._dio);
   final Dio _dio;
@@ -26,6 +31,14 @@ class PersonRepository {
   Future<PersonDetail> get(String personId) async {
     final response = await _dio.get('/api/persons/$personId');
     return PersonDetail.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  // 自分自身の人物カルテ（isSelf）。未登録の場合はnull。
+  Future<PersonDetail?> getMe() async {
+    final response = await _dio.get('/api/persons/me');
+    final data = response.data;
+    if (data is! Map<String, dynamic>) return null;
+    return PersonDetail.fromJson(data);
   }
 
   Future<PersonDetail> create({
@@ -45,6 +58,7 @@ class PersonRepository {
     List<SnsLink> snsLinks = const [],
     String sourceType = 'manual',
     String? introducerPersonId,
+    bool isSelf = false,
   }) async {
     final response = await _dio.post('/api/persons', data: {
       'fullName': fullName,
@@ -63,6 +77,7 @@ class PersonRepository {
       'snsLinks': snsLinks.map((s) => s.toJson()).toList(),
       'sourceType': sourceType,
       'introducerPersonId': introducerPersonId,
+      'isSelf': isSelf,
     });
     return PersonDetail.fromJson(response.data as Map<String, dynamic>);
   }

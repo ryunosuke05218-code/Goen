@@ -30,6 +30,7 @@ public class GoenDbContext : DbContext
     public DbSet<AiAssistantQuery> AiAssistantQueries => Set<AiAssistantQuery>();
     public DbSet<IntroLetterRequest> IntroLetterRequests => Set<IntroLetterRequest>();
     public DbSet<PersonResearchResult> PersonResearchResults => Set<PersonResearchResult>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -181,6 +182,13 @@ public class GoenDbContext : DbContext
             e.HasKey(x => x.PersonId);
             e.Property(x => x.SourcesJson).HasColumnName("sources").HasColumnType("jsonb");
             e.HasOne(x => x.Person).WithOne().HasForeignKey<PersonResearchResult>(x => x.PersonId);
+        });
+
+        modelBuilder.Entity<PasswordResetToken>(e =>
+        {
+            e.ToTable("password_reset_tokens");
+            e.HasKey(x => x.TokenId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
         });
     }
 }
