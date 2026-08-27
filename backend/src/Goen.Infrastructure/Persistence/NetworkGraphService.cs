@@ -28,8 +28,10 @@ public class NetworkGraphService
         Guid ownerUserId, Guid orgId, string ownerDisplayName,
         int depth1Limit = 25, int depth2Limit = 40, CancellationToken ct = default)
     {
+        // 自分自身の人物カルテ（is_self）は人脈の連絡先ではないため、中心の「自分」ノード（selfNode、下記）とは
+        // 別に通常の人脈として重複計上しない（ダッシュボードの集計と同じ方針）。
         var depth1 = await _db.PersonsRead
-            .Where(r => r.OwnerUserId == ownerUserId && r.OrgId == orgId)
+            .Where(r => r.OwnerUserId == ownerUserId && r.OrgId == orgId && !r.IsSelf)
             .OrderByDescending(r => r.LastContactAt)
             .Take(depth1Limit)
             .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName })
@@ -63,10 +65,13 @@ public class NetworkGraphService
                 .Take(depth2Limit)
                 .ToList();
 
+            // 二次接点（depth2）も、自分が登録した人物（OwnerUserId）のみを対象とする。チーム共有・閲覧権限管理
+            // （F-019）は未実装のため、他ユーザーが登録した人物が自分の人脈経由で見えてしまうのを防ぐ
+            // （ダッシュボード・人物一覧と同じ方針。深さ1の直接の人脈だけでなく2でも一貫させる）。
             var depth2Rows = depth2Ids.Count == 0
                 ? []
                 : await _db.PersonsRead
-                    .Where(r => depth2Ids.Contains(r.PersonId) && r.OrgId == orgId)
+                    .Where(r => depth2Ids.Contains(r.PersonId) && r.OrgId == orgId && r.OwnerUserId == ownerUserId && !r.IsSelf)
                     .Select(r => new { r.PersonId, r.FullName, r.CompanyName, r.IndustryName, r.OccupationName })
                     .ToListAsync(ct);
 
@@ -144,7 +149,7 @@ public class NetworkGraphService
         Guid targetUserId, Guid orgId, CancellationToken ct = default)
     {
         var rows = await _db.PersonsRead
-            .Where(r => r.OwnerUserId == targetUserId && r.OrgId == orgId)
+            .Where(r => r.OwnerUserId == targetUserId && r.OrgId == orgId && !r.IsSelf)
             .GroupBy(r => r.IndustryName)
             .Select(g => new { IndustryName = g.Key, Count = g.Count() })
             .ToListAsync(ct);

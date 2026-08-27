@@ -8,12 +8,10 @@ namespace Goen.Infrastructure.Persistence;
 public class MasterDataService
 {
     private readonly GoenDbContext _db;
-    private readonly PersonReadSyncService _readSync;
 
-    public MasterDataService(GoenDbContext db, PersonReadSyncService readSync)
+    public MasterDataService(GoenDbContext db)
     {
         _db = db;
-        _readSync = readSync;
     }
 
     // 業種名から業種コードを解決する。完全一致（大小区別なし）する既存業種があればそれを再利用し、なければ新規登録する。
@@ -35,17 +33,12 @@ public class MasterDataService
         return industry.IndustryCode;
     }
 
-    // 職種名（＋任意の業種名）から職種コードを解決する。occupationNameが空ならnull（職種未設定）を返す。
-    // 職種が未登録なら業種と一緒に新規登録し、既存の職種で業種名が現在の紐付けと異なる場合はその職種の業種紐付け
-    // 自体を更新する（同じ職種を使う全人物に影響するため、対象人物のpersons_readも即時再同期する）。
-    public async Task<string?> ResolveOccupationAsync(string? occupationName, string? industryName, CancellationToken ct)
+    // 職種名から職種コードを解決する。occupationNameが空ならnull（職種未設定）を返す。
+    // 職種が未登録なら新規登録し、その際は引数のindustryCodeForNewOccupation（現在選択中の業種）が
+    // あればその業種のみを紐付ける。既存の職種は複数業種にまたがりうる（F-030拡張）ため、
+    // 人物登録・編集画面から既存職種の業種紐付けを書き換えることはしない（設定画面の職種管理でのみ変更する）。
+    public async Task<string?> ResolveOccupationAsync(string? occupationName, string? industryCodeForNewOccupation, CancellationToken ct)
     {
-        string? industryCode = null;
-        if (!string.IsNullOrWhiteSpace(industryName))
-        {
-            industryCode = await ResolveIndustryAsync(industryName, ct);
-        }
-
         if (string.IsNullOrWhiteSpace(occupationName)) return null;
         var name = occupationName.Trim();
 
@@ -56,18 +49,19 @@ public class MasterDataService
             {
                 OccupationCode = await GenerateUniqueCodeAsync("O", code => _db.OccupationTypes.AnyAsync(o => o.OccupationCode == code, ct)),
                 OccupationName = name,
-                IndustryCode = industryCode,
                 SortOrder = 900,
                 IsActive = true,
             };
             _db.OccupationTypes.Add(occupation);
+            if (industryCodeForNewOccupation is not null)
+            {
+                _db.OccupationTypeIndustries.Add(new OccupationTypeIndustry
+                {
+                    OccupationCode = occupation.OccupationCode,
+                    IndustryCode = industryCodeForNewOccupation,
+                });
+            }
             await _db.SaveChangesAsync(ct);
-        }
-        else if (industryCode is not null && occupation.IndustryCode != industryCode)
-        {
-            occupation.IndustryCode = industryCode;
-            await _db.SaveChangesAsync(ct);
-            await _readSync.RefreshAllForOccupationAsync(occupation.OccupationCode, ct);
         }
 
         return occupation.OccupationCode;

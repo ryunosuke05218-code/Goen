@@ -8,9 +8,11 @@ import 'person_repository.dart';
 /// S-005 音声メモ入力画面（F-009）。
 /// マイクボタンでOS標準の音声認識を使って文字起こしするか、直接テキストで入力し、接点ログとして保存する。
 class VoiceMemoScreen extends ConsumerStatefulWidget {
-  const VoiceMemoScreen({super.key, required this.personId});
+  const VoiceMemoScreen({super.key, required this.personId, this.returnPath});
 
   final String personId;
+  // 戻るボタンで明示的に戻したい遷移元（例: 名刺登録の'/home?tab=2'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   ConsumerState<VoiceMemoScreen> createState() => _VoiceMemoScreenState();
@@ -38,7 +40,7 @@ class _VoiceMemoScreenState extends ConsumerState<VoiceMemoScreen> {
       );
       await repo.generateCard(widget.personId); // F-010: 蓄積情報からAI人物カルテを生成
       if (!mounted) return;
-      context.pushReplacement('/persons/${widget.personId}');
+      context.pushReplacement('/persons/${widget.personId}', extra: widget.returnPath);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存に失敗しました: $e')));
@@ -48,13 +50,22 @@ class _VoiceMemoScreenState extends ConsumerState<VoiceMemoScreen> {
   }
 
   Future<void> _skip() async {
-    context.pushReplacement('/persons/${widget.personId}');
+    context.pushReplacement('/persons/${widget.personId}', extra: widget.returnPath);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('音声メモ')),
+      appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
+        title: const Text('音声メモ'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

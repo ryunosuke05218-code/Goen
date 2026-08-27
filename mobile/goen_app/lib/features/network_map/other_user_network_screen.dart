@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../home/main_bottom_nav_bar.dart';
 import '../persons/models/person_models.dart';
@@ -19,7 +20,10 @@ final industrySummaryProvider =
 /// F-027: 同一組織内の他ユーザーの人脈図を、業種階層まで（人数集計のみ）で閲覧する。
 /// 職種・会社名・人物といった詳細は一切取得・表示しない。
 class OtherUserNetworkScreen extends ConsumerStatefulWidget {
-  const OtherUserNetworkScreen({super.key});
+  const OtherUserNetworkScreen({super.key, this.returnPath});
+
+  // 戻るボタンで明示的に戻したい遷移元（例: 人脈マップの'/home?tab=3'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   ConsumerState<OtherUserNetworkScreen> createState() => _OtherUserNetworkScreenState();
@@ -33,7 +37,16 @@ class _OtherUserNetworkScreenState extends ConsumerState<OtherUserNetworkScreen>
     final membersAsync = ref.watch(orgMembersProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('他ユーザーの人脈図')),
+      appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
+        title: const Text('他ユーザーの人脈図'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

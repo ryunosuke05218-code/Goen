@@ -18,38 +18,19 @@ class MasterRepository {
     return (response.data as List).map((e) => IndustryItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<IndustryItem> createIndustry(String industryName) async {
-    final response = await _dio.post('/api/masters/industries', data: {'industryName': industryName});
-    return IndustryItem.fromJson(response.data as Map<String, dynamic>);
-  }
-
-  Future<IndustryItem> updateIndustry({
-    required String industryCode,
-    required String industryName,
-    required bool isActive,
-  }) async {
-    final response = await _dio.put('/api/masters/industries/$industryCode', data: {
-      'industryName': industryName,
-      'isActive': isActive,
-    });
-    return IndustryItem.fromJson(response.data as Map<String, dynamic>);
-  }
-
   Future<List<OccupationTypeItem>> listOccupationTypes() async {
     final response = await _dio.get('/api/masters/occupation-types');
     return (response.data as List).map((e) => OccupationTypeItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  // industryCode（既存の業種を選択）かnewIndustryName（新規作成）のどちらかを指定する
+  // 業種は固定8種からの複数選択（新規業種の作成は不可）
   Future<OccupationTypeItem> createOccupationType({
     required String occupationName,
-    String? industryCode,
-    String? newIndustryName,
+    required List<String> industryCodes,
   }) async {
     final response = await _dio.post('/api/masters/occupation-types', data: {
       'occupationName': occupationName,
-      'industryCode': industryCode,
-      'newIndustryName': newIndustryName,
+      'industryCodes': industryCodes,
     });
     return OccupationTypeItem.fromJson(response.data as Map<String, dynamic>);
   }
@@ -57,12 +38,12 @@ class MasterRepository {
   Future<OccupationTypeItem> updateOccupationType({
     required String occupationCode,
     required String occupationName,
-    String? industryCode,
+    required List<String> industryCodes,
     required bool isActive,
   }) async {
     final response = await _dio.put('/api/masters/occupation-types/$occupationCode', data: {
       'occupationName': occupationName,
-      'industryCode': industryCode,
+      'industryCodes': industryCodes,
       'isActive': isActive,
     });
     return OccupationTypeItem.fromJson(response.data as Map<String, dynamic>);

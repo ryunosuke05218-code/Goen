@@ -52,7 +52,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 400),
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Form(
                 key: _formKey,
@@ -97,11 +97,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: _isSubmitting
                           ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text('ログイン'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: _isSubmitting ? null : () => context.push('/register'),
-                      child: const Text('アカウントをお持ちでない方はこちら（新規登録）'),
                     ),
                   ],
                 ),

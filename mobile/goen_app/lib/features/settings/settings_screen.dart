@@ -1,12 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/biometric_settings.dart';
 import '../../core/display_settings.dart';
 import '../../core/providers.dart';
 import '../home/main_bottom_nav_bar.dart';
 import '../persons/person_repository.dart';
+
+// GOEN公式Webサイト（会員登録・契約管理・法的情報のページ）。デプロイ先が変わった場合はここを更新する。
+const _websiteBaseUrl = 'https://goen-app.com';
+
+Future<void> _openLink(BuildContext context, String url) async {
+  final uri = Uri.tryParse(url);
+  final launched = uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!launched && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('リンクを開けませんでした: $url')));
+  }
+}
+
+Future<void> _showAccountDeletionInfo(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('アカウント削除について'),
+      content: const Text(
+        'アカウントの削除（退会）をご希望の場合は、GOEN公式Webサイトのサポート窓口までご連絡ください。\n\n'
+        'ご契約中の場合は、削除の前にご登録時のWebサイトから解約手続きを行ってください。',
+      ),
+      actions: [
+        FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる')),
+      ],
+    ),
+  );
+}
 
 final userSettingsProvider = FutureProvider.autoDispose((ref) async {
   final repo = ref.watch(personRepositoryProvider);
@@ -15,7 +43,10 @@ final userSettingsProvider = FutureProvider.autoDispose((ref) async {
 
 /// S-015 設定画面。プロフィール・公開範囲・生体認証・相互人脈登録・ログアウトを扱う。
 class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.returnPath});
+
+  // 戻るボタンで明示的に戻したい遷移元（例: ダッシュボードの'/home?tab=0'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -27,7 +58,16 @@ class SettingsScreen extends ConsumerWidget {
     final userSettingsAsync = ref.watch(userSettingsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
+      appBar: AppBar(
+        leading: returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(returnPath!),
+              ),
+        title: const Text('設定'),
+      ),
       body: ListView(
         children: [
           if (auth.email != null)
@@ -145,7 +185,7 @@ class SettingsScreen extends ConsumerWidget {
               child: Text('設定の取得に失敗しました: $err', style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ),
             data: (settings) => SwitchListTile(
-              title: const Text('相互人脈登録（F-028）'),
+              title: const Text('相互人脈登録'),
               subtitle: const Text('名刺登録した相手がGOENユーザーの場合、相手の人脈にも自分を自動登録することを許可します'),
               value: settings.allowMutualRegistration,
               onChanged: (v) async {
@@ -165,12 +205,12 @@ class SettingsScreen extends ConsumerWidget {
             padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
             child: Text('プラン', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
-          ListTile(
-            leading: const Icon(Icons.workspace_premium_outlined),
-            title: const Text('プラン・お支払い'),
-            subtitle: const Text('契約状況の確認、お支払い方法・解約の管理'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/settings/subscription'),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              'ご契約・お支払い方法の変更・解約は、ご登録時にご利用いただいたGOEN公式Webサイトから行えます。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ),
           const Divider(),
           const Padding(
@@ -183,6 +223,28 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: const Text('人脈図（人脈マップ）の業種＞職種グルーピングに使う項目を編集・追加できます'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push('/masters/manage'),
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('法的情報', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('プライバシーポリシー'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _openLink(context, '$_websiteBaseUrl/privacy.html'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('利用規約'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _openLink(context, '$_websiteBaseUrl/terms.html'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.person_remove_outlined),
+            title: const Text('アカウント削除について'),
+            onTap: () => _showAccountDeletionInfo(context),
           ),
           const Divider(),
           ListTile(

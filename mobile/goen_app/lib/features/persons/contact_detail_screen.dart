@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/bullet_text.dart';
 import 'models/person_models.dart';
 import 'person_repository.dart';
 
@@ -48,8 +49,10 @@ class ContactDetailScreen extends ConsumerStatefulWidget {
 
 class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
   late String? _note = widget.contact.note;
+  late String? _noteSummary = widget.contact.noteSummary;
   bool _isEditing = false;
   bool _isSaving = false;
+  bool _isSummarizing = false;
   late final TextEditingController _noteController = TextEditingController(text: _note);
 
   @override
@@ -83,6 +86,24 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
   void _startEditing() {
     _noteController.text = _note ?? '';
     setState(() => _isEditing = true);
+  }
+
+  // F-011拡張: 接点メモをAIが要約する。押すたびに最新のメモ内容で作り直し、DBへ上書き保存される
+  Future<void> _summarize() async {
+    setState(() => _isSummarizing = true);
+    try {
+      final updated = await ref.read(personRepositoryProvider).summarizeContactNote(
+            personId: widget.personId,
+            contactId: widget.contact.contactId,
+          );
+      if (!mounted) return;
+      setState(() => _noteSummary = updated.noteSummary);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('要約に失敗しました: $e')));
+    } finally {
+      if (mounted) setState(() => _isSummarizing = false);
+    }
   }
 
   Future<void> _addToGoogleCalendar() async {
@@ -173,6 +194,44 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
               _note ?? 'この接点にはメモが記録されていません。',
               style: _note == null ? TextStyle(color: Theme.of(context).colorScheme.outline) : null,
             ),
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Text('メモの要約', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(width: 8),
+              if (_noteSummary != null) const Chip(label: Text('AI生成'), visualDensity: VisualDensity.compact),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'メモの内容をAIが要約します。ボタンを押すたびに、その時点のメモ内容で要約を作り直します。',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 12),
+          if (_noteSummary case final summary?) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: BulletText(summary),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: _isSummarizing
+                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.auto_awesome_outlined),
+              label: Text(_isSummarizing ? 'AIが要約中…' : (_noteSummary == null ? 'メモを要約する' : 'メモを要約し直す')),
+              onPressed: (_isSummarizing || _note == null || _note!.trim().isEmpty) ? null : _summarize,
+            ),
+          ),
         ],
       ),
     );

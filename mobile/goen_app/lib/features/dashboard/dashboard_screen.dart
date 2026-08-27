@@ -32,7 +32,7 @@ class DashboardScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: '設定',
-            onPressed: () => context.push('/settings'),
+            onPressed: () => context.push('/settings', extra: '/home?tab=0'),
           ),
         ],
       ),
@@ -95,7 +95,7 @@ class _SelfPersonCard extends ConsumerWidget {
                   ),
                   FilledButton.tonal(
                     onPressed: () async {
-                      final created = await context.push('/persons/me/new');
+                      final created = await context.push('/persons/me/new', extra: '/home?tab=0');
                       if (created != null) ref.invalidate(selfPersonProvider);
                     },
                     child: const Text('登録する'),
@@ -121,7 +121,7 @@ class _SelfPersonCard extends ConsumerWidget {
                 ),
                 OutlinedButton(
                   onPressed: () async {
-                    final updated = await context.push<bool>('/persons/${self.personId}/edit', extra: self);
+                    final updated = await context.push<bool>('/persons/${self.personId}/edit', extra: (self, '/home?tab=0'));
                     if (updated == true) ref.invalidate(selfPersonProvider);
                   },
                   child: const Text('編集する'),
@@ -196,7 +196,7 @@ class _UpcomingContactsCard extends StatelessWidget {
                   subtitle: c.place == null ? null : Text(c.place!),
                   trailing: Text(_formatDate(c.occurredAt)),
                   // 人物カルテ内の接点履歴セクションへ遷移する
-                  onTap: () => context.push('/persons/${c.personId}'),
+                  onTap: () => context.push('/persons/${c.personId}', extra: '/home?tab=0'),
                 ),
           ],
         ),

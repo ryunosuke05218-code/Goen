@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'person_card_capture_screen.dart';
 import 'person_manual_create_screen.dart';
@@ -9,7 +10,11 @@ enum _RegisterMode { card, manual }
 /// （名刺撮影と手入力を別々のボタンで案内していたのを1つの入口に統合したもの）。
 /// 両モードとも [IndexedStack] で保持するため、入力途中の内容は切り替えても消えない。
 class PersonRegisterScreen extends StatefulWidget {
-  const PersonRegisterScreen({super.key});
+  const PersonRegisterScreen({super.key, this.returnPath});
+
+  // 戻るボタンで明示的に戻したい遷移元。ホームのタブとして埋め込む場合はnullのままにする
+  // （その場合はcanPopがfalseになるため自動的に戻るボタン自体が表示されない）。
+  final String? returnPath;
 
   @override
   State<PersonRegisterScreen> createState() => _PersonRegisterScreenState();
@@ -22,6 +27,13 @@ class _PersonRegisterScreenState extends State<PersonRegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
         title: const Text('人物を登録'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(60),

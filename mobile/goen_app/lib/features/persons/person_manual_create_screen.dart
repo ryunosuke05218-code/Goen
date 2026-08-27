@@ -122,7 +122,10 @@ class _PersonManualCreateScreenState
             introducerPersonId: _introducer?.personId,
           );
       if (!mounted) return;
-      context.pushReplacement('/persons/${person.personId}');
+      // 手入力登録はホームのタブ埋め込み（プッシュを経由しない）としても表示されうるため、
+      // pushReplacementで置き換えてしまうと'/home'ページ自体がスタックから失われ、
+      // 遷移先の人物カルテに戻るボタンがなくなってしまう。必ずpushで積み、戻り先を明示する。
+      context.push('/persons/${person.personId}', extra: '/home?tab=2');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -227,9 +230,7 @@ class _PersonManualCreateScreenState
             ),
           ),
           const SizedBox(height: 12),
-          IndustryComboBox(controller: _industryName),
-          const SizedBox(height: 12),
-          OccupationComboBox(controller: _occupationName),
+          IndustryOccupationFields(industryController: _industryName, occupationController: _occupationName),
           const SizedBox(height: 12),
           TextFormField(
             controller: _email,

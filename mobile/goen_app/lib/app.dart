@@ -9,10 +9,9 @@ import 'features/ai_assistant/ai_assistant_history_screen.dart';
 import 'features/ai_assistant/ai_assistant_screen.dart';
 import 'features/auth/forgot_password_screen.dart';
 import 'features/auth/login_screen.dart';
-import 'features/auth/register_screen.dart';
 import 'features/auth/reset_password_screen.dart';
+import 'features/auth/subscription_required_screen.dart';
 import 'features/auth/unlock_screen.dart';
-import 'features/billing/subscription_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/home/main_bottom_nav_bar.dart';
@@ -22,7 +21,6 @@ import 'features/masters/master_management_screen.dart';
 import 'features/network_map/network_map_screen.dart';
 import 'features/network_map/other_user_network_screen.dart';
 import 'features/persons/models/person_models.dart';
-import 'features/persons/add_relation_screen.dart';
 import 'features/persons/contact_detail_screen.dart';
 import 'features/persons/person_card_capture_screen.dart';
 import 'features/persons/person_detail_screen.dart';
@@ -44,7 +42,8 @@ class _RouterRefreshNotifier extends ChangeNotifier {
 }
 
 // 未ログインでもアクセスしてよい画面（それ以外は/loginへリダイレクトする）
-const _publicRoutes = {'/login', '/register', '/forgot-password', '/reset-password'};
+// F-001拡張: アプリ内での新規登録は廃止（Web完結の会員登録・Stripe契約フローに一本化したため）。
+const _publicRoutes = {'/login', '/forgot-password', '/reset-password'};
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = _RouterRefreshNotifier(ref);
@@ -66,8 +65,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (auth.status == AuthStatus.locked) {
         return state.matchedLocation == '/unlock' ? null : '/unlock';
       }
+      if (auth.status == AuthStatus.subscriptionRequired) {
+        return state.matchedLocation == '/subscription-required' ? null : '/subscription-required';
+      }
       // authenticated
-      if (onPublicRoute || state.matchedLocation == '/' || state.matchedLocation == '/unlock') {
+      if (onPublicRoute ||
+          state.matchedLocation == '/' ||
+          state.matchedLocation == '/unlock' ||
+          state.matchedLocation == '/subscription-required') {
         return '/home';
       }
       return null;
@@ -75,13 +80,13 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', builder: (context, state) => const _SplashScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
       GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),
       GoRoute(
         path: '/reset-password',
         builder: (context, state) => ResetPasswordScreen(initialEmail: state.extra as String?),
       ),
       GoRoute(path: '/unlock', builder: (context, state) => const UnlockScreen()),
+      GoRoute(path: '/subscription-required', builder: (context, state) => const SubscriptionRequiredScreen()),
       GoRoute(
         path: '/home',
         builder: (context, state) {
@@ -97,34 +102,47 @@ final routerProvider = Provider<GoRouter>((ref) {
         // 下部メニューを表示する（HomeScreenのIndexedStackタブとして使う場合はHomeScreen側のbottomNavigationBar
         // が既にあるため、PersonRegisterScreen自体には持たせず、ここでルート単位でラップする）。
         builder: (context, state) => Scaffold(
-          body: const PersonRegisterScreen(),
+          body: const PersonRegisterScreen(returnPath: '/home?tab=1'),
           bottomNavigationBar: const MainBottomNavBar(selectedIndex: 2),
         ),
       ),
       GoRoute(
         path: '/persons/new/confirm',
-        builder: (context, state) => PersonRegisterConfirmScreen(draft: state.extra as OcrDraft),
+        builder: (context, state) {
+          final (draft, returnPath) = state.extra as (OcrDraft, String?);
+          return PersonRegisterConfirmScreen(draft: draft, returnPath: returnPath);
+        },
       ),
-      GoRoute(path: '/persons/me/new', builder: (context, state) => const SelfPersonRegisterScreen()),
+      GoRoute(
+        path: '/persons/me/new',
+        builder: (context, state) => SelfPersonRegisterScreen(
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
+      ),
       GoRoute(
         path: '/persons/:id',
-        builder: (context, state) => PersonDetailScreen(personId: state.pathParameters['id']!),
+        builder: (context, state) => PersonDetailScreen(
+          personId: state.pathParameters['id']!,
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
       ),
       GoRoute(
         path: '/persons/:id/voice-memo',
-        builder: (context, state) => VoiceMemoScreen(personId: state.pathParameters['id']!),
+        builder: (context, state) => VoiceMemoScreen(
+          personId: state.pathParameters['id']!,
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
       ),
       GoRoute(
         path: '/persons/:id/network',
         builder: (context, state) => PersonNetworkScreen(rootPersonId: state.pathParameters['id']!),
       ),
       GoRoute(
-        path: '/persons/:id/relations/new',
-        builder: (context, state) => AddRelationScreen(personId: state.pathParameters['id']!),
-      ),
-      GoRoute(
         path: '/persons/:id/edit',
-        builder: (context, state) => PersonEditScreen(person: state.extra as PersonDetail),
+        builder: (context, state) {
+          final (person, returnPath) = state.extra as (PersonDetail, String?);
+          return PersonEditScreen(person: person, returnPath: returnPath);
+        },
       ),
       GoRoute(
         path: '/persons/:id/contacts/:contactId',
@@ -138,12 +156,22 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/network-map', builder: (context, state) => const NetworkMapScreen()),
-      GoRoute(path: '/network-map/ai-assistant', builder: (context, state) => const AiAssistantScreen()),
+      GoRoute(
+        path: '/network-map/ai-assistant',
+        builder: (context, state) => AiAssistantScreen(
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
+      ),
       GoRoute(
         path: '/network-map/ai-assistant/history',
         builder: (context, state) => const AiAssistantHistoryScreen(),
       ),
-      GoRoute(path: '/network-map/other-user', builder: (context, state) => const OtherUserNetworkScreen()),
+      GoRoute(
+        path: '/network-map/other-user',
+        builder: (context, state) => OtherUserNetworkScreen(
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
+      ),
       GoRoute(
         path: '/intro-letter',
         builder: (context, state) {
@@ -159,9 +187,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           return const IntroLetterScreen();
         },
       ),
-      GoRoute(path: '/intro-letter/history', builder: (context, state) => const IntroLetterHistoryScreen()),
-      GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
-      GoRoute(path: '/settings/subscription', builder: (context, state) => const SubscriptionScreen()),
+      GoRoute(
+        path: '/intro-letter/history',
+        builder: (context, state) => IntroLetterHistoryScreen(
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => SettingsScreen(
+          returnPath: state.extra is String ? state.extra as String : null,
+        ),
+      ),
       GoRoute(path: '/masters/manage', builder: (context, state) => const MasterManagementScreen()),
     ],
   );

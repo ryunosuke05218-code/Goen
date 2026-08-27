@@ -67,32 +67,40 @@ public class MastersController : ControllerBase
     }
 
     // F-006: 人物編集画面の職種選択肢、人脈図の階層グルーピングの元データ（管理画面では非活性も表示するため全件返す）
+    // F-030拡張: 職種は複数業種にまたがりうるため、業種は一覧で返す。
     [HttpGet("occupation-types")]
     public async Task<ActionResult<IReadOnlyList<OccupationTypeItem>>> ListOccupationTypes(CancellationToken ct)
     {
-        var items = await (
-            from o in _db.OccupationTypes
-            join i in _db.Industries on o.IndustryCode equals i.IndustryCode into industries
-            from i in industries.DefaultIfEmpty()
-            orderby o.SortOrder, o.OccupationName
-            select new OccupationTypeItem(o.OccupationCode, o.OccupationName, o.IndustryCode, i == null ? null : i.IndustryName, o.IsActive)
+        var occupations = await _db.OccupationTypes.OrderBy(o => o.SortOrder).ThenBy(o => o.OccupationName).ToListAsync(ct);
+        var links = await (
+            from oi in _db.OccupationTypeIndustries
+            join i in _db.Industries on oi.IndustryCode equals i.IndustryCode
+            select new { oi.OccupationCode, i.IndustryCode, i.IndustryName }
         ).ToListAsync(ct);
+        var linksByOccupation = links.ToLookup(l => l.OccupationCode);
+
+        var items = occupations.Select(o =>
+        {
+            var occupationLinks = linksByOccupation[o.OccupationCode].ToList();
+            return new OccupationTypeItem(
+                o.OccupationCode, o.OccupationName,
+                occupationLinks.Select(l => l.IndustryCode).ToList(),
+                occupationLinks.Select(l => l.IndustryName).ToList(),
+                o.IsActive);
+        }).ToList();
 
         return Ok(items);
     }
 
-    // F-030: 職種追加画面。業種はコード指定（既存を選択）か、NewIndustryName指定（新規作成、同名は再利用）のどちらかで紐付ける。
+    // F-030拡張: 職種追加画面。業種は固定8種からの複数選択のみ（新規業種の作成は不可）。
     [HttpPost("occupation-types")]
     public async Task<ActionResult<OccupationTypeItem>> CreateOccupationType(CreateOccupationTypeRequest request, CancellationToken ct)
     {
         var name = request.OccupationName.Trim();
         if (string.IsNullOrEmpty(name)) return BadRequest("職種名を入力してください。");
 
-        var industryCode = string.IsNullOrWhiteSpace(request.IndustryCode) ? null : request.IndustryCode;
-        if (industryCode is null && !string.IsNullOrWhiteSpace(request.NewIndustryName))
-        {
-            industryCode = await _masterData.ResolveIndustryAsync(request.NewIndustryName, ct);
-        }
+        var industryCodes = await ValidateIndustryCodesAsync(request.IndustryCodes, ct);
+        if (industryCodes is null) return BadRequest("指定された業種が見つかりません。");
 
         var existing = await _db.OccupationTypes.FirstOrDefaultAsync(o => o.OccupationName == name, ct);
         if (existing is not null) return Ok(await ToItemAsync(existing, ct));
@@ -101,17 +109,20 @@ public class MastersController : ControllerBase
         {
             OccupationCode = await MasterDataService.GenerateUniqueCodeAsync("O", code => _db.OccupationTypes.AnyAsync(o => o.OccupationCode == code, ct)),
             OccupationName = name,
-            IndustryCode = industryCode,
             SortOrder = 900,
             IsActive = true,
         };
         _db.OccupationTypes.Add(occupation);
+        foreach (var industryCode in industryCodes)
+        {
+            _db.OccupationTypeIndustries.Add(new OccupationTypeIndustry { OccupationCode = occupation.OccupationCode, IndustryCode = industryCode });
+        }
         await _db.SaveChangesAsync(ct);
 
         return Ok(await ToItemAsync(occupation, ct));
     }
 
-    // 業種・職種管理画面: 職種名・紐づく業種の変更／有効・無効の切り替え
+    // 業種・職種管理画面: 職種名・紐づく業種（複数選択）の変更／有効・無効の切り替え
     [HttpPut("occupation-types/{code}")]
     public async Task<ActionResult<OccupationTypeItem>> UpdateOccupationType(string code, UpdateOccupationTypeRequest request, CancellationToken ct)
     {
@@ -121,18 +132,28 @@ public class MastersController : ControllerBase
         var name = request.OccupationName.Trim();
         if (string.IsNullOrEmpty(name)) return BadRequest("職種名を入力してください。");
 
-        var newIndustryCode = string.IsNullOrWhiteSpace(request.IndustryCode) ? null : request.IndustryCode;
-        var industryChanged = occupation.IndustryCode != newIndustryCode;
+        var industryCodes = await ValidateIndustryCodesAsync(request.IndustryCodes, ct);
+        if (industryCodes is null) return BadRequest("指定された業種が見つかりません。");
+
+        // persons_read.occupation_nameはこの職種を選んでいる人物ごとに非正規化されているため、
+        // 職種名を変更した場合はすでに登録済みの人物分もここで再同期する
+        // （通常はPersonReadSyncServiceが人物側の書き込み時にしか呼ばれないため、マスタ側の変更だけでは反映されない）。
+        // 業種の紐付けは人物のindustry_codeとは独立（F-030拡張）のため、変更しても人物側の再同期は不要。
+        var nameChanged = occupation.OccupationName != name;
 
         occupation.OccupationName = name;
-        occupation.IndustryCode = newIndustryCode;
         occupation.IsActive = request.IsActive;
+
+        var existingLinks = await _db.OccupationTypeIndustries.Where(oi => oi.OccupationCode == code).ToListAsync(ct);
+        _db.OccupationTypeIndustries.RemoveRange(existingLinks);
+        foreach (var industryCode in industryCodes)
+        {
+            _db.OccupationTypeIndustries.Add(new OccupationTypeIndustry { OccupationCode = code, IndustryCode = industryCode });
+        }
+
         await _db.SaveChangesAsync(ct);
 
-        // persons_read.industry_nameはこの職種を選んでいる人物ごとに非正規化されているため、
-        // 業種の紐付けを変更した場合はすでに登録済みの人物分もここで再同期する
-        // （通常はPersonReadSyncServiceが人物側の書き込み時にしか呼ばれないため、マスタ側の変更だけでは反映されない）。
-        if (industryChanged)
+        if (nameChanged)
         {
             await _readSync.RefreshAllForOccupationAsync(code, ct);
         }
@@ -140,11 +161,28 @@ public class MastersController : ControllerBase
         return Ok(await ToItemAsync(occupation, ct));
     }
 
+    // 指定された業種コード群が実在するか検証する（存在しないコードが1件でもあればnullを返す）。null/空はOK（未設定）。
+    private async Task<List<string>?> ValidateIndustryCodesAsync(IReadOnlyList<string>? industryCodes, CancellationToken ct)
+    {
+        var codes = (industryCodes ?? Array.Empty<string>()).Distinct().ToList();
+        if (codes.Count == 0) return codes;
+
+        var foundCount = await _db.Industries.CountAsync(i => codes.Contains(i.IndustryCode), ct);
+        return foundCount == codes.Count ? codes : null;
+    }
+
     private async Task<OccupationTypeItem> ToItemAsync(OccupationType occupation, CancellationToken ct)
     {
-        var industryName = occupation.IndustryCode is null
-            ? null
-            : await _db.Industries.Where(i => i.IndustryCode == occupation.IndustryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);
-        return new OccupationTypeItem(occupation.OccupationCode, occupation.OccupationName, occupation.IndustryCode, industryName, occupation.IsActive);
+        var links = await (
+            from oi in _db.OccupationTypeIndustries
+            join i in _db.Industries on oi.IndustryCode equals i.IndustryCode
+            where oi.OccupationCode == occupation.OccupationCode
+            select new { i.IndustryCode, i.IndustryName }
+        ).ToListAsync(ct);
+        return new OccupationTypeItem(
+            occupation.OccupationCode, occupation.OccupationName,
+            links.Select(l => l.IndustryCode).ToList(),
+            links.Select(l => l.IndustryName).ToList(),
+            occupation.IsActive);
     }
 }

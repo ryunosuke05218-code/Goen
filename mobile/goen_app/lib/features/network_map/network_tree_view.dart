@@ -422,6 +422,9 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
   late final Set<String> _collapsed = _allGroupKeys(buildIndustryTree(widget.graph));
   final TransformationController _transformController = TransformationController();
   bool _initialCentered = false;
+  // 直前にタップして開閉したノードのkey。次のbuildでそのノードの新しい位置へパンして中央に表示する
+  // （折りたたんだ場合は折りたたんだもの自身、開いた場合は開いたもの自身が対象）。
+  String? _pendingCenterKey;
 
   static Set<String> _allGroupKeys(List<TreeGroupNode> groups) {
     final keys = <String>{};
@@ -511,6 +514,48 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
           });
         }
 
+        // グループの折りたたみ・展開直後は画面中央をパンし直す。
+        // ・折りたたんだ場合: タップしたノード自身の新しい位置を中央にする。
+        // ・開いた場合: タップしたノード自身ではなく、その直下で新たに現れた子ノード群
+        //   （職種・会社名・人物のいずれでも）のバウンディングボックス中心を中央にする。
+        if (_pendingCenterKey != null && constraints.maxWidth.isFinite && constraints.maxHeight.isFinite) {
+          final targetKey = _pendingCenterKey!;
+          _pendingCenterKey = null;
+
+          Offset? targetCanvasPos;
+          if (!_collapsed.contains(targetKey)) {
+            final children = layoutNodes.where((n) => n.parentKey == targetKey).toList();
+            if (children.isNotEmpty) {
+              final minX = children.map((n) => n.position.dx).reduce(math.min);
+              final maxX = children.map((n) => n.position.dx).reduce(math.max);
+              final minY = children.map((n) => n.position.dy).reduce(math.min);
+              final maxY = children.map((n) => n.position.dy).reduce(math.max);
+              targetCanvasPos = center + Offset((minX + maxX) / 2, (minY + maxY) / 2);
+            }
+          }
+          if (targetCanvasPos == null) {
+            final matches = layoutNodes.where((n) => n.key == targetKey);
+            if (matches.isNotEmpty) targetCanvasPos = center + matches.first.position;
+          }
+
+          if (targetCanvasPos != null) {
+            final pos = targetCanvasPos;
+            final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              final scale = _transformController.value.getMaxScaleOnAxis();
+              _transformController.value = Matrix4.identity()
+                ..translateByDouble(
+                  viewportSize.width / 2 - pos.dx * scale,
+                  viewportSize.height / 2 - pos.dy * scale,
+                  0,
+                  1,
+                )
+                ..scaleByDouble(scale, scale, scale, 1);
+            });
+          }
+        }
+
         return InteractiveViewer(
           transformationController: _transformController,
           minScale: 0.25,
@@ -581,6 +626,7 @@ class _NetworkTreeViewState extends State<NetworkTreeView> {
                 } else {
                   _collapsed.add(node.key);
                 }
+                _pendingCenterKey = node.key;
               });
             }
           },

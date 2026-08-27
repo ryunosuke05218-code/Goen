@@ -11,6 +11,8 @@ public class Person
     public string? Department { get; set; }
     public string? JobTitle { get; set; }
     public string? OccupationCode { get; set; }
+    // 業種。職種が複数業種にまたがりうる（OccupationTypeIndustry）ため、職種経由の導出ではなく人物ごとに直接持たせる
+    public string? IndustryCode { get; set; }
     public string Visibility { get; set; } = "private"; // private / team / org
     public DateOnly? FirstMetAt { get; set; }
     public string? MetPlace { get; set; }

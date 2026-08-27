@@ -74,5 +74,7 @@
 	<string>音声メモを文字に変換するために使用します（F-009）。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ギャラリーから名刺画像を選択するために使用します。</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>生体認証でログイン画面をすばやく解除するために使用します。</string>
 </dict>
 </plist>

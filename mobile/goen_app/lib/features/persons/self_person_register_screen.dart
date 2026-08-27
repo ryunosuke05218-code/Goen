@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'models/person_models.dart';
 import 'occupation_picker.dart';
@@ -10,9 +11,11 @@ import 'sns_links_editor.dart';
 /// 紹介者選択・音声入力等の「他者を登録する」ための機能は持たない。
 /// 登録後は`isSelf: true`のPersonとして作成され、人物一覧では通常の登録人物と区別して最上部に固定表示される。
 class SelfPersonRegisterScreen extends ConsumerStatefulWidget {
-  const SelfPersonRegisterScreen({super.key, this.initialFullName});
+  const SelfPersonRegisterScreen({super.key, this.initialFullName, this.returnPath});
 
   final String? initialFullName;
+  // 戻るボタンで明示的に戻したい遷移元（例: ダッシュボードの'/home?tab=0'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   ConsumerState<SelfPersonRegisterScreen> createState() => _SelfPersonRegisterScreenState();
@@ -81,7 +84,16 @@ class _SelfPersonRegisterScreenState extends ConsumerState<SelfPersonRegisterScr
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('自分の人物カルテを登録')),
+      appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
+        title: const Text('自分の人物カルテを登録'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -119,9 +131,7 @@ class _SelfPersonRegisterScreenState extends ConsumerState<SelfPersonRegisterScr
               decoration: const InputDecoration(labelText: '役職', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
-            IndustryComboBox(controller: _industryName),
-            const SizedBox(height: 12),
-            OccupationComboBox(controller: _occupationName),
+            IndustryOccupationFields(industryController: _industryName, occupationController: _occupationName),
             const SizedBox(height: 12),
             TextFormField(
               controller: _tel,

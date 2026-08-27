@@ -48,7 +48,7 @@ class _NetworkMapScreenState extends ConsumerState<NetworkMapScreen> {
           IconButton(
             icon: const Icon(Icons.groups_outlined),
             tooltip: '他ユーザーの人脈図を見る',
-            onPressed: () => context.push('/network-map/other-user'),
+            onPressed: () => context.push('/network-map/other-user', extra: '/home?tab=3'),
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -89,7 +89,10 @@ class _NetworkMapScreenState extends ConsumerState<NetworkMapScreen> {
               Expanded(
                 child: NetworkTreeView(
                   graph: filteredGraph,
-                  onPersonTap: (personId) => context.push('/persons/$personId'),
+                  // 人脈マップは'/home?tab=3'のタブとして開かれるため、通常のpop()に任せると
+                  // タブの状態が正しく復元されないことがある（クエリパラメータのみの変化はpushの
+                  // 履歴として積まれないため）。戻り先を明示的に指定する。
+                  onPersonTap: (personId) => context.push('/persons/$personId', extra: '/home?tab=3'),
                 ),
               ),
             ],
@@ -100,7 +103,7 @@ class _NetworkMapScreenState extends ConsumerState<NetworkMapScreen> {
         heroTag: 'network_map_fab',
         icon: const Icon(Icons.auto_awesome_outlined),
         label: const Text('AIに相談する'),
-        onPressed: () => context.push('/network-map/ai-assistant'),
+        onPressed: () => context.push('/network-map/ai-assistant', extra: '/home?tab=3'),
       ),
     );
   }

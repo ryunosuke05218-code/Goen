@@ -10,5 +10,6 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return ApiClient(
     storage: ref.watch(tokenStorageProvider),
     onSessionExpired: () => ref.read(authSessionProvider.notifier).handleSessionExpired(),
+    onSubscriptionRequired: () => ref.read(authSessionProvider.notifier).handleSubscriptionRequired(),
   );
 });

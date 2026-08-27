@@ -6,11 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/bullet_text.dart';
 import '../home/main_bottom_nav_bar.dart';
 import 'models/person_models.dart';
-import 'person_network_screen.dart';
 import 'person_repository.dart';
-import 'relation_type.dart';
 
 final personDetailProvider = FutureProvider.autoDispose.family<PersonDetail, String>((ref, personId) async {
   final repo = ref.watch(personRepositoryProvider);
@@ -40,18 +39,28 @@ final _infoHintDismissedProvider = NotifierProvider<_InfoHintDismissalNotifier, 
 
 /// S-006 人物カルテ画面（F-010 AI要約・F-011 接点履歴タイムライン）
 class PersonDetailScreen extends ConsumerWidget {
-  const PersonDetailScreen({super.key, required this.personId});
+  const PersonDetailScreen({super.key, required this.personId, this.returnPath});
 
   final String personId;
+  // 戻るボタンで明示的に戻したい遷移元（例: 人脈マップの'/home?tab=3'）。未指定時は通常のpop()に任せる。
+  // 人脈マップのようにクエリパラメータ付きのタブへpushで入ってきた場合、既定のpop()では
+  // タブの状態が正しく復元されないことがあるため、遷移元が分かっている呼び出し元は明示的に指定する。
+  final String? returnPath;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final detailAsync = ref.watch(personDetailProvider(personId));
     final contactsAsync = ref.watch(personContactsProvider(personId));
-    final networkAsync = ref.watch(personNetworkGraphProvider(personId));
 
     return Scaffold(
       appBar: AppBar(
+        leading: returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(returnPath!),
+              ),
         title: const Text('人物カルテ'),
         actions: [
           // データ取得中はIconButtonごと出し入れせず無効化するだけに留める。ページ遷移（Hero）の
@@ -64,7 +73,7 @@ class PersonDetailScreen extends ConsumerWidget {
                 ? null
                 : () async {
                     final person = detailAsync.value!;
-                    final updated = await context.push<bool>('/persons/$personId/edit', extra: person);
+                    final updated = await context.push<bool>('/persons/$personId/edit', extra: (person, null));
                     if (updated == true) {
                       ref.invalidate(personDetailProvider(personId));
                     }
@@ -145,20 +154,20 @@ class PersonDetailScreen extends ConsumerWidget {
                 child: person.aiSummary == null
                     ? FilledButton.tonal(
                         onPressed: () => _showGenerateCardSheet(context, ref, personId),
-                        child: const Text('AIカルテを生成する（F-010）'),
+                        child: const Text('AIカルテを生成する'),
                       )
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(person.aiSummary!),
+                          BulletText(person.aiSummary!),
                           _AiSummarySources(person: person),
                         ],
                       ),
               ),
               _ResearchSection(personId: personId, companyName: person.companyName),
-              if (person.aiBusiness != null) _SectionCard(title: '事業内容', child: Text(person.aiBusiness!)),
-              if (person.aiIssues != null) _SectionCard(title: '抱える課題', child: Text(person.aiIssues!)),
-              if (person.aiHobby != null) _SectionCard(title: '趣味・人柄', child: Text(person.aiHobby!)),
+              if (person.aiBusiness != null) _SectionCard(title: '事業内容', child: BulletText(person.aiBusiness!)),
+              if (person.aiIssues != null) _SectionCard(title: '抱える課題', child: BulletText(person.aiIssues!)),
+              if (person.aiHobby != null) _SectionCard(title: '趣味・人柄', child: BulletText(person.aiHobby!)),
               _SectionCard(
                 title: '連絡先',
                 child: Column(
@@ -201,71 +210,6 @@ class PersonDetailScreen extends ConsumerWidget {
                         style: TextStyle(color: Theme.of(context).colorScheme.outline),
                       )
                     : Text(person.note!),
-              ),
-              _SectionCard(
-                title: '人脈グラフ',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('他の登録済み人物との関係（紹介者・同僚など）を登録できます。AIを使わず自分で選んで登録することも、AIに提案してもらうこともできます。'),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.add_link),
-                          label: const Text('手動で関係を追加'),
-                          onPressed: () async {
-                            final added = await context.push<bool>('/persons/$personId/relations/new');
-                            if (added == true) {
-                              ref.invalidate(personNetworkGraphProvider(personId));
-                            }
-                          },
-                        ),
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.auto_awesome_outlined),
-                          label: const Text('AIに関係性を提案してもらう'),
-                          onPressed: () => _showRelationSuggestions(context, ref, personId),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 24),
-                    Text('登録済みの関係', style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 4),
-                    networkAsync.when(
-                      loading: () => const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: LinearProgressIndicator(),
-                      ),
-                      error: (err, st) => Text('取得に失敗しました: $err', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                      data: (graph) {
-                        final nodeById = {for (final n in graph.nodes) n.personId: n};
-                        final related = graph.edges
-                            .where((e) =>
-                                e.relationType != 'self' && (e.fromPersonId == personId || e.toPersonId == personId))
-                            .toList();
-                        if (related.isEmpty) {
-                          return const Text('まだ関係が登録されていません。', style: TextStyle(fontSize: 12, color: Colors.grey));
-                        }
-                        return Column(
-                          children: [
-                            for (final e in related)
-                              if (nodeById[e.fromPersonId == personId ? e.toPersonId : e.fromPersonId] case final other?)
-                                ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
-                                  leading: CircleAvatar(radius: 6, backgroundColor: RelationTypeStyle.color(e.relationType)),
-                                  title: Text(other.fullName),
-                                  subtitle: Text(RelationTypeStyle.label(e.relationType)),
-                                  onTap: () => context.push('/persons/${other.personId}'),
-                                ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
               ),
               const SizedBox(height: 8),
               Text('接点履歴', style: Theme.of(context).textTheme.titleMedium),
@@ -752,7 +696,7 @@ class _ResearchSectionState extends ConsumerState<_ResearchSection> {
                   icon: _isGenerating
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.travel_explore_outlined),
-                  label: const Text('AIでリサーチする（F-038）'),
+                  label: const Text('AIでリサーチする'),
                   onPressed: _isGenerating || !canGenerate ? null : _generate,
                 ),
               ],
@@ -977,96 +921,3 @@ class _GenerateCardSheetState extends ConsumerState<_GenerateCardSheet> {
   }
 }
 
-// F-005/F-006 AIによる人脈グラフ作成: 提案を取得し、確認のうえ選択した関係のみ登録する
-Future<void> _showRelationSuggestions(BuildContext context, WidgetRef ref, String personId) async {
-  final messenger = ScaffoldMessenger.of(context);
-  final repo = ref.read(personRepositoryProvider);
-
-  showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => const Center(child: CircularProgressIndicator()),
-  );
-
-  List<RelationSuggestion> suggestions;
-  try {
-    suggestions = await repo.suggestRelations(personId);
-  } catch (e) {
-    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
-    messenger.showSnackBar(SnackBar(content: Text('提案の取得に失敗しました: $e')));
-    return;
-  }
-
-  if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
-
-  if (suggestions.isEmpty) {
-    messenger.showSnackBar(const SnackBar(content: Text('現時点でAIが提案できる関係性はありませんでした。')));
-    return;
-  }
-
-  if (!context.mounted) return;
-  final selected = await showDialog<List<RelationSuggestion>>(
-    context: context,
-    builder: (_) => _RelationSuggestionDialog(suggestions: suggestions),
-  );
-
-  if (selected == null || selected.isEmpty) return;
-
-  try {
-    await repo.confirmRelations(personId: personId, selected: selected);
-    messenger.showSnackBar(SnackBar(content: Text('${selected.length}件の関係を登録しました')));
-    ref.invalidate(personNetworkGraphProvider(personId));
-  } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text('登録に失敗しました: $e')));
-  }
-}
-
-class _RelationSuggestionDialog extends StatefulWidget {
-  const _RelationSuggestionDialog({required this.suggestions});
-
-  final List<RelationSuggestion> suggestions;
-
-  @override
-  State<_RelationSuggestionDialog> createState() => _RelationSuggestionDialogState();
-}
-
-class _RelationSuggestionDialogState extends State<_RelationSuggestionDialog> {
-  late final Set<int> _selectedIndexes = {for (var i = 0; i < widget.suggestions.length; i++) i};
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('AIによる関係性の提案'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView.builder(
-          shrinkWrap: true,
-          itemCount: widget.suggestions.length,
-          itemBuilder: (context, index) {
-            final s = widget.suggestions[index];
-            return CheckboxListTile(
-              value: _selectedIndexes.contains(index),
-              onChanged: (v) => setState(() {
-                if (v == true) {
-                  _selectedIndexes.add(index);
-                } else {
-                  _selectedIndexes.remove(index);
-                }
-              }),
-              title: Text('${s.relatedPersonName}（${RelationTypeStyle.label(s.relationType)}）'),
-              subtitle: Text('${s.reason}\n強さ: ${'★' * s.strength}'),
-              isThreeLine: true,
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('キャンセル')),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop([for (final i in _selectedIndexes) widget.suggestions[i]]),
-          child: const Text('選択した関係を登録'),
-        ),
-      ],
-    );
-  }
-}

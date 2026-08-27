@@ -25,6 +25,7 @@ public class GoenDbContext : DbContext
     public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
     public DbSet<PersonRelation> PersonRelations => Set<PersonRelation>();
     public DbSet<OccupationType> OccupationTypes => Set<OccupationType>();
+    public DbSet<OccupationTypeIndustry> OccupationTypeIndustries => Set<OccupationTypeIndustry>();
     public DbSet<Industry> Industries => Set<Industry>();
     public DbSet<Prefecture> Prefectures => Set<Prefecture>();
     public DbSet<AiAssistantQuery> AiAssistantQueries => Set<AiAssistantQuery>();
@@ -75,6 +76,12 @@ public class GoenDbContext : DbContext
         {
             e.ToTable("m_occupation_type");
             e.HasKey(x => x.OccupationCode);
+        });
+
+        modelBuilder.Entity<OccupationTypeIndustry>(e =>
+        {
+            e.ToTable("m_occupation_type_industry");
+            e.HasKey(x => new { x.OccupationCode, x.IndustryCode });
         });
 
         modelBuilder.Entity<Industry>(e =>

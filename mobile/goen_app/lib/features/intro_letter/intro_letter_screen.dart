@@ -33,11 +33,15 @@ class IntroLetterScreen extends ConsumerStatefulWidget {
     this.initialPersonId,
     this.initialPersonName,
     this.initialRequirement,
+    this.returnPath,
   });
 
   final String? initialPersonId;
   final String? initialPersonName;
   final String? initialRequirement;
+  // ホームのタブとして埋め込む場合にのみ渡す（履歴画面への戻り先として使う）。
+  // AI指示画面等からプッシュで開かれた場合はnullのままにし、通常のpop()で1つ前に戻す。
+  final String? returnPath;
 
   @override
   ConsumerState<IntroLetterScreen> createState() => _IntroLetterScreenState();
@@ -137,7 +141,7 @@ class _IntroLetterScreenState extends ConsumerState<IntroLetterScreen> {
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: '過去の作成履歴',
-            onPressed: () => context.push('/intro-letter/history'),
+            onPressed: () => context.push('/intro-letter/history', extra: widget.returnPath),
           ),
         ],
       ),

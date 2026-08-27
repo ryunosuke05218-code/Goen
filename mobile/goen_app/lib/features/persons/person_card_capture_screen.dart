@@ -2,9 +2,7 @@ import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -56,25 +54,6 @@ class _PersonCardCaptureScreenState
     });
   }
 
-  // 開発用: エミュレータ/シミュレータからはホストPCのファイルにアクセスできない（ドラッグ＆ドロップも
-  // ホストOSの壁を越えられない）ため、動作確認用の名刺画像をアプリに同梱し、実機・エミュレータどちらでも
-  // 同じ手順で名刺OCRを試せるようにする。デバッグビルドでのみ表示する。
-  Future<void> _loadTestAsset() async {
-    try {
-      final bytes = await rootBundle.load(
-        'assets/test_data/test_nameplete1.png',
-      );
-      final file = File('${Directory.systemTemp.path}/test_nameplete1.png');
-      await file.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
-      setState(() {
-        _image = file;
-        _errorMessage = null;
-      });
-    } catch (e) {
-      setState(() => _errorMessage = 'テスト画像の読み込みに失敗しました: $e');
-    }
-  }
-
   static const _supportedImageExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
 
   void _handleDroppedFiles(DropDoneDetails details) {
@@ -100,7 +79,9 @@ class _PersonCardCaptureScreenState
     try {
       final draft = await ref.read(personRepositoryProvider).ocrDraft(_image!);
       if (!mounted) return;
-      context.push('/persons/new/confirm', extra: draft);
+      // 名刺登録は'/home?tab=2'のタブとして開かれるため、通常のpop()に任せると
+      // タブの状態が正しく復元されないことがある。戻り先を明示的に指定する。
+      context.push('/persons/new/confirm', extra: (draft, '/home?tab=2'));
     } catch (e) {
       setState(() => _errorMessage = 'OCR処理に失敗しました: $e');
     } finally {
@@ -186,17 +167,6 @@ class _PersonCardCaptureScreenState
               onPressed: _isProcessing ? null : _browseFile,
             ),
           ),
-          if (kDebugMode) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.bug_report_outlined),
-                label: const Text('テスト画像を読み込む（開発用）'),
-                onPressed: _isProcessing ? null : _loadTestAsset,
-              ),
-            ),
-          ],
           const SizedBox(height: 12),
           FilledButton(
             onPressed: (_image == null || _isProcessing) ? null : _runOcr,
@@ -224,9 +194,11 @@ class _PersonCardCaptureScreenState
 
 /// S-004 登録内容確認画面。OCR抽出結果を確認・修正してから確定登録する。
 class PersonRegisterConfirmScreen extends ConsumerStatefulWidget {
-  const PersonRegisterConfirmScreen({super.key, required this.draft});
+  const PersonRegisterConfirmScreen({super.key, required this.draft, this.returnPath});
 
   final OcrDraft draft;
+  // 戻るボタンで明示的に戻したい遷移元（例: 名刺登録の'/home?tab=2'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   ConsumerState<PersonRegisterConfirmScreen> createState() =>
@@ -349,7 +321,7 @@ class _PersonRegisterConfirmScreenState
           );
       if (!mounted) return;
       // F-007事後条件: 登録後は続けて音声メモ入力(S-005)へ遷移する
-      context.pushReplacement('/persons/${person.personId}/voice-memo');
+      context.pushReplacement('/persons/${person.personId}/voice-memo', extra: widget.returnPath);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -365,7 +337,16 @@ class _PersonRegisterConfirmScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('登録内容の確認')),
+      appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
+        title: const Text('登録内容の確認'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -403,9 +384,7 @@ class _PersonRegisterConfirmScreenState
             ),
           ),
           const SizedBox(height: 12),
-          IndustryComboBox(controller: _industryName),
-          const SizedBox(height: 12),
-          OccupationComboBox(controller: _occupationName),
+          IndustryOccupationFields(industryController: _industryName, occupationController: _occupationName),
           const SizedBox(height: 12),
           TextField(
             controller: _email,

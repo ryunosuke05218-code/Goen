@@ -19,7 +19,10 @@ const _examplePrompts = [
 /// 「AI指示」画面（人脈マップ→AIに相談する）。
 /// 人脈マップ自体はAIを使わずつながりの線だけを表示するため、経路提案・RAG検索はこの画面に切り出す。
 class AiAssistantScreen extends ConsumerStatefulWidget {
-  const AiAssistantScreen({super.key});
+  const AiAssistantScreen({super.key, this.returnPath});
+
+  // 戻るボタンで明示的に戻したい遷移元（例: 人脈マップの'/home?tab=3'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   ConsumerState<AiAssistantScreen> createState() => _AiAssistantScreenState();
@@ -63,6 +66,13 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
         title: const Text('AIに相談する'),
         actions: [
           IconButton(

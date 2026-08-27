@@ -69,7 +69,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           PersonListScreen(),
           PersonRegisterScreen(),
           NetworkMapScreen(),
-          IntroLetterScreen(),
+          IntroLetterScreen(returnPath: '/home?tab=4'),
         ],
       ),
       bottomNavigationBar: MainBottomNavBar(

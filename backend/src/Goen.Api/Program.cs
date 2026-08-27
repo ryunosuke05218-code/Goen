@@ -156,7 +156,9 @@ builder.Services.AddCors(options =>
         policy.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod());
 });
 
-builder.Services.AddControllers();
+// サブスク課金ゲート: [AllowInactiveSubscription]を付与していない全コントローラに適用される
+// グローバルフィルタ（SubscriptionGateFilter参照）。
+builder.Services.AddControllers(options => options.Filters.Add<Goen.Api.SubscriptionGateFilter>());
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

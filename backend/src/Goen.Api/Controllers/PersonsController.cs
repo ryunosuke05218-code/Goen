@@ -155,8 +155,15 @@ public class PersonsController : ControllerBase
             companyId = await ResolveCompanyAsync(request.CompanyName, ct);
         }
 
-        // F-030: 職種・業種はコンボボックス（自由入力）で選択/入力される。未登録の名称はここでマスタに即時登録する
-        var occupationCode = await _masterData.ResolveOccupationAsync(request.OccupationName, request.IndustryName, ct);
+        // F-030拡張: 業種は固定8種からのプルダウン選択（自由入力不可）。職種は引き続きコンボボックス（自由入力）で、
+        // 未登録の職種名はここでマスタに即時登録し、その際は現在選択中の業種のみを紐付ける
+        // （職種は複数業種にまたがりうるため、既存の職種の業種紐付けを人物登録側から書き換えることはしない）。
+        string? industryCode = null;
+        if (!string.IsNullOrWhiteSpace(request.IndustryName))
+        {
+            industryCode = await _masterData.ResolveIndustryAsync(request.IndustryName, ct);
+        }
+        var occupationCode = await _masterData.ResolveOccupationAsync(request.OccupationName, industryCode, ct);
 
         // F-005 人脈グラフ（AIを使わない確実な自動生成）: 紹介者を選択式で指定してもらい、そのまま referrer 関係を張る
         Guid? introducerPersonId = null;
@@ -177,6 +184,7 @@ public class PersonsController : ControllerBase
             Department = request.Department,
             JobTitle = request.JobTitle,
             OccupationCode = occupationCode,
+            IndustryCode = industryCode,
             SourceType = request.SourceType,
             IntroducerPersonId = introducerPersonId,
             IsSelf = request.IsSelf,
@@ -257,14 +265,22 @@ public class PersonsController : ControllerBase
             .FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == User.GetOrgId(), ct);
         if (person is null) return NotFound();
 
-        // F-030: 職種・業種はコンボボックス（自由入力）で選択/入力される。未登録の名称はここでマスタに即時登録する
-        var occupationCode = await _masterData.ResolveOccupationAsync(request.OccupationName, request.IndustryName, ct);
+        // F-030拡張: 業種は固定8種からのプルダウン選択（自由入力不可）。職種は引き続きコンボボックス（自由入力）で、
+        // 未登録の職種名はここでマスタに即時登録し、その際は現在選択中の業種のみを紐付ける
+        // （職種は複数業種にまたがりうるため、既存の職種の業種紐付けを人物登録側から書き換えることはしない）。
+        string? industryCode = null;
+        if (!string.IsNullOrWhiteSpace(request.IndustryName))
+        {
+            industryCode = await _masterData.ResolveIndustryAsync(request.IndustryName, ct);
+        }
+        var occupationCode = await _masterData.ResolveOccupationAsync(request.OccupationName, industryCode, ct);
 
         person.FullName = request.FullName;
         person.FullNameKana = request.FullNameKana;
         person.Department = request.Department;
         person.JobTitle = request.JobTitle;
         person.OccupationCode = occupationCode;
+        person.IndustryCode = industryCode;
         person.Occupation = occupationCode is null
             ? null
             : await _db.OccupationTypes.FindAsync(new object[] { occupationCode }, ct);
@@ -291,9 +307,50 @@ public class PersonsController : ControllerBase
         person.Profile.SnsAccountsJson = JsonSerializer.Serialize(request.SnsLinks ?? Array.Empty<SnsLink>());
         person.Profile.UpdatedBy = User.GetUserId();
 
+        // F-005 人脈グラフ（AIを使わない確実な自動生成）: 人物カルテの編集画面から紹介者を直接編集できるようにする。
+        // 変更があった場合のみ、対応する referrer 関係（person_relations）も張り替える。
+        var previousIntroducerId = person.IntroducerPersonId;
+        Guid? introducerPersonId = null;
+        if (request.IntroducerPersonId is { } candidateIntroducerId
+            && candidateIntroducerId != personId
+            && await _db.Persons.AnyAsync(p => p.PersonId == candidateIntroducerId && p.OrgId == person.OrgId, ct))
+        {
+            introducerPersonId = candidateIntroducerId;
+        }
+        person.IntroducerPersonId = introducerPersonId;
+        person.IntroducerPerson = introducerPersonId is null
+            ? null
+            : await _db.Persons.FindAsync(new object[] { introducerPersonId.Value }, ct);
+
+        if (previousIntroducerId != introducerPersonId)
+        {
+            if (previousIntroducerId is { } oldIntroducerId)
+            {
+                var oldRelation = await _db.PersonRelations.FirstOrDefaultAsync(r =>
+                    r.FromPersonId == oldIntroducerId && r.ToPersonId == personId && r.RelationType == "referrer", ct);
+                if (oldRelation is not null)
+                {
+                    _db.PersonRelations.Remove(oldRelation);
+                }
+            }
+            if (introducerPersonId is { } newIntroducerId)
+            {
+                await UpsertRelationAsync(person.OrgId, newIntroducerId, personId, "referrer", strength: 3, isManual: true,
+                    note: "利用者が紹介者として選択登録", ct);
+            }
+        }
+
         await _db.SaveChangesAsync(ct);
         await _readSync.RefreshAsync(personId, ct);
         await _ragQueue.EnqueueAsync("profile", personId, personId, 'U', ct);
+        if (previousIntroducerId is { } refreshOldIntroducerId && refreshOldIntroducerId != introducerPersonId)
+        {
+            await _readSync.RefreshAsync(refreshOldIntroducerId, ct);
+        }
+        if (introducerPersonId is { } refreshNewIntroducerId && refreshNewIntroducerId != previousIntroducerId)
+        {
+            await _readSync.RefreshAsync(refreshNewIntroducerId, ct);
+        }
 
         var latestCard = await _db.AiPersonCards.FirstOrDefaultAsync(c => c.PersonId == personId && c.IsLatest, ct);
         var industryName = await GetIndustryNameAsync(person, ct);
@@ -482,7 +539,7 @@ public class PersonsController : ControllerBase
             await _ragQueue.EnqueueAsync("note", contact.ContactId, personId, 'U', ct);
         }
 
-        return Ok(new ContactItem(contact.ContactId, contact.ContactType, contact.OccurredAt, contact.Place, contact.Note, contact.HasMedia));
+        return Ok(new ContactItem(contact.ContactId, contact.ContactType, contact.OccurredAt, contact.Place, contact.Note, contact.NoteSummary, contact.HasMedia));
     }
 
     // F-011: 接点履歴のメモを編集する（何を話したかを後から書き足す・修正する）
@@ -508,7 +565,7 @@ public class PersonsController : ControllerBase
             await _ragQueue.EnqueueAsync("note", contact.ContactId, personId, 'D', ct);
         }
 
-        return Ok(new ContactItem(contact.ContactId, contact.ContactType, contact.OccurredAt, contact.Place, contact.Note, contact.HasMedia));
+        return Ok(new ContactItem(contact.ContactId, contact.ContactType, contact.OccurredAt, contact.Place, contact.Note, contact.NoteSummary, contact.HasMedia));
     }
 
     [HttpGet("{personId:guid}/contacts")]
@@ -520,10 +577,40 @@ public class PersonsController : ControllerBase
         var items = await _db.Contacts
             .Where(c => c.PersonId == personId)
             .OrderByDescending(c => c.OccurredAt)
-            .Select(c => new ContactItem(c.ContactId, c.ContactType, c.OccurredAt, c.Place, c.Note, c.HasMedia))
+            .Select(c => new ContactItem(c.ContactId, c.ContactType, c.OccurredAt, c.Place, c.Note, c.NoteSummary, c.HasMedia))
             .ToListAsync(ct);
 
         return Ok(items);
+    }
+
+    // F-011拡張: 接点メモをAIが要約する。ボタン押下のたびに毎回作り直し、DBへ上書き保存する
+    // （メモを編集しても要約は自動更新しない。最新内容で要約したい場合は再度押してもらう想定）。
+    [HttpPost("{personId:guid}/contacts/{contactId:guid}/summarize")]
+    public async Task<ActionResult<ContactItem>> SummarizeContactNote(Guid personId, Guid contactId, CancellationToken ct)
+    {
+        var contact = await _db.Contacts.FirstOrDefaultAsync(
+            c => c.ContactId == contactId && c.PersonId == personId && c.OrgId == User.GetOrgId(), ct);
+        if (contact is null) return NotFound();
+
+        if (string.IsNullOrWhiteSpace(contact.Note))
+        {
+            return BadRequest(new { message = "メモが未入力のため要約できません。" });
+        }
+
+        const string systemPrompt = """
+            あなたは人脈管理アプリのAIアシスタントです。接点（商談・1to1など）のメモを要約してください。
+
+            出力は日本語の箇条書きのみとし、各行を「・」で始めて改行で区切ること。説明文や前置きは不要。
+            メモに書かれていない情報を推測や創作で補わないこと。要点が1つしかない場合は1行のみでよい。
+            """;
+
+        var summary = await _llm.ComposeTextAsync(systemPrompt, contact.Note, cancellationToken: ct);
+
+        contact.NoteSummary = summary.Trim();
+        contact.UpdatedBy = User.GetUserId();
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new ContactItem(contact.ContactId, contact.ContactType, contact.OccurredAt, contact.Place, contact.Note, contact.NoteSummary, contact.HasMedia));
     }
 
     // F-009: 音声メモを文字起こしし、接点ログに紐づけて保存する
@@ -761,74 +848,6 @@ public class PersonsController : ControllerBase
             result.GeneratedAt));
     }
 
-    // F-005/F-006 人脈グラフ: 対象人物と関連しそうな候補者をAIに提示し、関係の提案を受ける（未確定・DB未反映）
-    [HttpGet("{personId:guid}/relations/suggest")]
-    public async Task<ActionResult<IReadOnlyList<RelationSuggestionResponse>>> SuggestRelations(Guid personId, CancellationToken ct)
-    {
-        var orgId = User.GetOrgId();
-        var target = await BuildPersonContextAsync(personId, orgId, ct);
-        if (target is null) return NotFound();
-
-        var candidates = await _db.Persons
-            .Include(p => p.Company)
-            .Where(p => p.OrgId == orgId && p.PersonId != personId)
-            .OrderByDescending(p => p.LastContactAt)
-            .Take(30) // 外部API呼び出しのトークン量・コストを抑えるため候補数を制限する
-            .ToListAsync(ct);
-
-        var candidateContexts = new List<PersonContext>();
-        foreach (var c in candidates)
-        {
-            var card = await _db.AiPersonCards.Where(x => x.PersonId == c.PersonId && x.IsLatest).FirstOrDefaultAsync(ct);
-            candidateContexts.Add(new PersonContext(c.PersonId, c.FullName, c.Company?.CompanyName, c.JobTitle, card?.Summary, card?.Issues, card?.IntroducerName));
-        }
-
-        var suggestions = await _llm.SuggestRelationsAsync(target, candidateContexts, ct);
-
-        // 既に登録済みの関係は重複提案しない
-        var existingRelatedIds = await _db.PersonRelations
-            .Where(r => r.FromPersonId == personId || r.ToPersonId == personId)
-            .Select(r => r.FromPersonId == personId ? r.ToPersonId : r.FromPersonId)
-            .ToListAsync(ct);
-        var existingSet = existingRelatedIds.ToHashSet();
-
-        var nameById = candidates.ToDictionary(c => c.PersonId, c => c.FullName);
-
-        var response = suggestions
-            .Where(s => !existingSet.Contains(s.RelatedPersonId))
-            .Select(s => new RelationSuggestionResponse(s.RelatedPersonId, nameById.GetValueOrDefault(s.RelatedPersonId, "?"), s.RelationType, s.Reason, s.Strength))
-            .ToList();
-
-        return Ok(response);
-    }
-
-    // F-005/F-006 人脈グラフ: AI提案(または手動)の関係を確定登録する
-    [HttpPost("{personId:guid}/relations")]
-    public async Task<IActionResult> ConfirmRelations(Guid personId, ConfirmRelationsRequest request, CancellationToken ct)
-    {
-        var orgId = User.GetOrgId();
-        var person = await _db.Persons.FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == orgId, ct);
-        if (person is null) return NotFound();
-
-        const string note = "利用者が登録（AI提案の確認、または手動追加）";
-
-        foreach (var item in request.Relations)
-        {
-            var relatedExists = await _db.Persons.AnyAsync(p => p.PersonId == item.RelatedPersonId && p.OrgId == orgId, ct);
-            if (!relatedExists) continue;
-
-            await UpsertRelationAsync(orgId, personId, item.RelatedPersonId, item.RelationType, item.Strength, isManual: true, note, ct);
-
-            if (item.IsBidirectional)
-            {
-                await UpsertRelationAsync(orgId, item.RelatedPersonId, personId, item.RelationType, item.Strength, isManual: true, note, ct);
-            }
-        }
-
-        await _db.SaveChangesAsync(ct);
-        return NoContent();
-    }
-
     // F-005/F-006 人脈グラフ: 指定人物を起点に距離maxDepthまでの関係グラフを取得する（テーブル設計書5.3）
     [HttpGet("{personId:guid}/network")]
     public async Task<ActionResult<NetworkGraphResponse>> GetNetwork(Guid personId, [FromQuery] int maxDepth, CancellationToken ct)
@@ -843,16 +862,6 @@ public class PersonsController : ControllerBase
         return Ok(new NetworkGraphResponse(
             graph.Nodes.Select(n => new NetworkNodeResponse(n.PersonId, n.FullName, n.CompanyName, n.IndustryName, n.OccupationName, n.Depth, n.IsSelf)).ToList(),
             graph.Edges.Select(e => new NetworkEdgeResponse(e.RelationId, e.FromPersonId, e.ToPersonId, e.RelationType, e.Strength)).ToList()));
-    }
-
-    private async Task<PersonContext?> BuildPersonContextAsync(Guid personId, Guid orgId, CancellationToken ct)
-    {
-        var person = await _db.Persons.Include(p => p.Company)
-            .FirstOrDefaultAsync(p => p.PersonId == personId && p.OrgId == orgId, ct);
-        if (person is null) return null;
-
-        var card = await _db.AiPersonCards.Where(c => c.PersonId == personId && c.IsLatest).FirstOrDefaultAsync(ct);
-        return new PersonContext(person.PersonId, person.FullName, person.Company?.CompanyName, person.JobTitle, card?.Summary, card?.Issues, card?.IntroducerName);
     }
 
     private async Task TryLinkIntroducerAsync(Person person, string? introducerName, CancellationToken ct)
@@ -1009,11 +1018,12 @@ public class PersonsController : ControllerBase
     private static string NormalizeCompanyName(string name) =>
         name.Replace("株式会社", "").Replace("有限会社", "").Trim();
 
-    // 業種は「人物が選んだ職種に紐づく業種」を優先する（F-030）。会社の業種は入力経路がなく実質未使用のため、
-    // 職種が未設定または職種に業種が紐付けられていない場合のみ補助的にフォールバックする（PersonReadSyncServiceと同じ方針）。
+    // 業種は人物ごとに直接選択された値（F-030拡張、固定8種からのプルダウン選択）を優先する。
+    // 職種は複数業種にまたがりうるため業種の導出元にはできない。会社の業種は入力経路がなく実質未使用のため、
+    // 人物の業種が未設定の場合のみ補助的にフォールバックする（PersonReadSyncServiceと同じ方針）。
     private async Task<string?> GetIndustryNameAsync(Person person, CancellationToken ct)
     {
-        var industryCode = person.Occupation?.IndustryCode ?? person.Company?.IndustryCode;
+        var industryCode = person.IndustryCode ?? person.Company?.IndustryCode;
         if (industryCode is null) return null;
         return await _db.Industries.Where(i => i.IndustryCode == industryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);
     }

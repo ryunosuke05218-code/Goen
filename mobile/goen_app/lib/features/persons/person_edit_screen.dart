@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'models/person_models.dart';
 import 'occupation_picker.dart';
+import 'person_picker.dart';
 import 'person_repository.dart';
 import 'sns_links_editor.dart';
 
@@ -17,9 +19,11 @@ String _visibilityLabel(String v) => switch (v) {
 
 /// F-002/F-003 人脈データ登録・編集機能: 人物カルテの基本情報を手動で編集する画面。
 class PersonEditScreen extends ConsumerStatefulWidget {
-  const PersonEditScreen({super.key, required this.person});
+  const PersonEditScreen({super.key, required this.person, this.returnPath});
 
   final PersonDetail person;
+  // 戻るボタンで明示的に戻したい遷移元（例: ダッシュボードの'/home?tab=0'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   ConsumerState<PersonEditScreen> createState() => _PersonEditScreenState();
@@ -42,6 +46,8 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
   late final _metPlace = TextEditingController(text: widget.person.metPlace);
   late String _visibility = widget.person.visibility;
   late List<SnsLink> _snsLinks = widget.person.snsLinks;
+  late String? _introducerPersonId = widget.person.introducerPersonId;
+  late String? _introducerPersonName = widget.person.introducerPersonName;
   bool _isSubmitting = false;
 
   @override
@@ -57,6 +63,16 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
   }
 
   String? _emptyToNull(String v) => v.trim().isEmpty ? null : v.trim();
+
+  Future<void> _pickIntroducer() async {
+    final picked = await pickPerson(context, title: '紹介者を選択', excludePersonId: widget.person.personId);
+    if (picked != null) {
+      setState(() {
+        _introducerPersonId = picked.personId;
+        _introducerPersonName = picked.fullName;
+      });
+    }
+  }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -79,6 +95,7 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
             note: _emptyToNull(_note.text),
             metPlace: _emptyToNull(_metPlace.text),
             snsLinks: _snsLinks,
+            introducerPersonId: _introducerPersonId,
           );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -93,7 +110,16 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('人物カルテを編集')),
+      appBar: AppBar(
+        leading: widget.returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(widget.returnPath!),
+              ),
+        title: const Text('人物カルテを編集'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -129,9 +155,7 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
               decoration: const InputDecoration(labelText: '役職', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
-            IndustryComboBox(controller: _industryName),
-            const SizedBox(height: 12),
-            OccupationComboBox(controller: _occupationName),
+            IndustryOccupationFields(industryController: _industryName, occupationController: _occupationName),
             const SizedBox(height: 12),
             TextFormField(
               controller: _tel,
@@ -181,6 +205,28 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
               initialLinks: _snsLinks,
               onChanged: (links) => _snsLinks = links,
             ),
+            const SizedBox(height: 16),
+            Text('紹介者', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            if (_introducerPersonName case final name?)
+              Card(
+                child: ListTile(
+                  title: Text(name),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => setState(() {
+                      _introducerPersonId = null;
+                      _introducerPersonName = null;
+                    }),
+                  ),
+                ),
+              )
+            else
+              OutlinedButton.icon(
+                icon: const Icon(Icons.person_search_outlined),
+                label: const Text('紹介者を選択'),
+                onPressed: _pickIntroducer,
+              ),
             const Divider(height: 32),
             Text('公開範囲', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),

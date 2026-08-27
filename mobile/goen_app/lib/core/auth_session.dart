@@ -7,7 +7,9 @@ import 'biometric_settings.dart';
 import 'token_storage.dart';
 
 // F-001: lockedは「有効なリフレッシュトークンはあるが、生体認証が有効なためロック解除が必要」な状態。
-enum AuthStatus { unknown, authenticated, unauthenticated, locked }
+// subscriptionRequiredは「ログインはできたが、有効なサブスク契約がない（未契約・期限切れ）」状態。
+// アプリ内には契約導線を置かない方針のため、この状態ではWebサイトでの契約を促す専用画面に留める。
+enum AuthStatus { unknown, authenticated, unauthenticated, locked, subscriptionRequired }
 
 class AuthState {
   const AuthState({required this.status, this.userDisplayName, this.email});
@@ -67,15 +69,22 @@ class AuthSessionNotifier extends Notifier<AuthState> {
         'password': password,
       });
       final data = response.data as Map<String, dynamic>;
+      final accessToken = data['accessToken'] as String;
       await _storage.saveTokens(
-        accessToken: data['accessToken'] as String,
+        accessToken: accessToken,
         refreshToken: data['refreshToken'] as String,
       );
       final user = data['user'] as Map<String, dynamic>;
+      final displayName = user['displayName'] as String?;
+      final userEmail = user['email'] as String?;
+
+      // ログイン直後に契約状況を確認し、未契約・期限切れの場合はそのまま案内画面へ振り分ける
+      // （アプリ内に契約導線がないため、これがユーザーへ状況を伝える最初の機会になる）。
+      final subscriptionActive = await _checkSubscriptionActive(accessToken);
       state = AuthState(
-        status: AuthStatus.authenticated,
-        userDisplayName: user['displayName'] as String?,
-        email: user['email'] as String?,
+        status: subscriptionActive ? AuthStatus.authenticated : AuthStatus.subscriptionRequired,
+        userDisplayName: displayName,
+        email: userEmail,
       );
       return null;
     } on DioException catch (e) {
@@ -89,36 +98,40 @@ class AuthSessionNotifier extends Notifier<AuthState> {
     }
   }
 
-  Future<String?> register({required String email, required String password, required String displayName}) async {
+  // サブスク課金ゲート: /api/billing/subscription はゲート対象外（AllowInactiveSubscription）のため、
+  // 未契約・期限切れの状態でも必ず結果を返す。
+  Future<bool> _checkSubscriptionActive(String accessToken) async {
     final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
     try {
-      final response = await dio.post('/api/auth/register', data: {
-        'email': email,
-        'password': password,
-        'displayName': displayName,
-      });
-      final data = response.data as Map<String, dynamic>;
-      await _storage.saveTokens(
-        accessToken: data['accessToken'] as String,
-        refreshToken: data['refreshToken'] as String,
+      final response = await dio.get(
+        '/api/billing/subscription',
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
       );
-      final user = data['user'] as Map<String, dynamic>;
-      state = AuthState(
-        status: AuthStatus.authenticated,
-        userDisplayName: user['displayName'] as String?,
-        email: user['email'] as String?,
-      );
-      return null;
-    } on DioException catch (e) {
-      final message = (e.response?.data is Map) ? (e.response?.data as Map)['message'] as String? : null;
-      if (e.response?.statusCode == 409) {
-        return message ?? 'このメールアドレスは既に登録されています。';
-      }
-      if (e.response?.statusCode == 400) {
-        return message ?? '入力内容を確認してください。';
-      }
-      return '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。';
+      final status = (response.data as Map<String, dynamic>)['status'] as String?;
+      return status == 'active' || status == 'trialing';
+    } on DioException {
+      // 通信エラー時は判定できないため、利用不可にはせず現状維持側（true）に倒す
+      // （バックエンド側のSubscriptionGateFilterが実際のAPI呼び出し時にあらためて正しく判定する）。
+      return true;
     }
+  }
+
+  /// subscriptionRequired画面の「更新を確認する」ボタンから呼ばれる。
+  /// 有効な契約が確認できればauthenticatedへ復帰させる（成功時はgo_routerが自動的に/homeへ遷移する）。
+  Future<bool> recheckSubscription() async {
+    final accessToken = await _storage.readAccessToken();
+    if (accessToken == null) return false;
+    final active = await _checkSubscriptionActive(accessToken);
+    if (active) {
+      state = AuthState(status: AuthStatus.authenticated, userDisplayName: state.userDisplayName, email: state.email);
+    }
+    return active;
+  }
+
+  /// APIクライアントが402（サブスク未契約・期限切れ）を検知した際に呼ばれる。
+  void handleSubscriptionRequired() {
+    if (state.status != AuthStatus.authenticated) return;
+    state = AuthState(status: AuthStatus.subscriptionRequired, userDisplayName: state.userDisplayName, email: state.email);
   }
 
   // バックエンドはメールアドレスの存在有無に関わらず常に200を返す（列挙防止）。

@@ -116,16 +116,20 @@ CREATE TABLE m_prefecture (
 );
 
 -- 職種マスタ（要件Q-011で決定。人脈図（F-006）の業種＞職種＞会社名＞人物の階層グルーピングに使用）
--- industry_codeは職種追加画面（F-030）で選択/新規作成した業種への紐付け。
--- 人物→職種→業種の経路で「業種別」グルーピングを導出する（companies.industry_codeは入力経路がなく実質未使用）。
+-- 業種との紐付けは1対1ではなく、下記m_occupation_type_industryによる多対多（1つの職種が複数業種にまたがりうる）。
 CREATE TABLE m_occupation_type (
   occupation_code varchar(10) PRIMARY KEY,
   occupation_name text NOT NULL,
-  industry_code   varchar(10) REFERENCES m_industry(industry_code),
   sort_order      integer NOT NULL DEFAULT 0,
   is_active       boolean NOT NULL DEFAULT true
 );
-CREATE INDEX ix_occupation_type_industry ON m_occupation_type (industry_code);
+
+-- 職種×業種（多対多）。設定画面の職種追加・編集で複数業種を選択できる。
+CREATE TABLE m_occupation_type_industry (
+  occupation_code varchar(10) NOT NULL REFERENCES m_occupation_type(occupation_code) ON DELETE CASCADE,
+  industry_code   varchar(10) NOT NULL REFERENCES m_industry(industry_code) ON DELETE CASCADE,
+  PRIMARY KEY (occupation_code, industry_code)
+);
 
 -- =====================================================================
 -- 2. 準マスタ ※共通カラムあり・履歴あり
@@ -283,6 +287,7 @@ CREATE TABLE persons (
   department           text,
   job_title            text,
   occupation_code      varchar(10) REFERENCES m_occupation_type(occupation_code), -- 職種（役職job_titleとは別概念）。人脈図(F-006)の階層グルーピングに使用
+  industry_code        varchar(10) REFERENCES m_industry(industry_code), -- 業種。職種が複数業種にまたがりうる（m_occupation_type_industry）ため、職種経由の導出ではなく人物ごとに直接持たせる
   visibility           text NOT NULL CHECK (visibility IN ('private','team','org')) DEFAULT 'private',
   first_met_at         date,
   met_place            text, -- どこで会ったか（例：「〇〇異業種交流会」）。RAGチャンク(profile)にも含める
@@ -301,6 +306,7 @@ CREATE INDEX ix_persons_org_company ON persons (org_id, company_id);
 CREATE INDEX ix_persons_full_name_kana ON persons (full_name_kana);
 CREATE INDEX ix_persons_introducer ON persons (introducer_person_id);
 CREATE INDEX ix_persons_occupation_code ON persons (occupation_code);
+CREATE INDEX ix_persons_industry_code ON persons (industry_code);
 -- 1ユーザーにつき自分自身のカルテ（is_self=true）は最大1件までとする
 CREATE UNIQUE INDEX ux_persons_owner_self ON persons (org_id, owner_user_id) WHERE is_self;
 
@@ -546,6 +552,7 @@ CREATE TABLE contacts (
   occurred_at  timestamptz NOT NULL,
   place        text,
   note         text,
+  note_summary text,
   has_media    boolean NOT NULL DEFAULT false,
   created_at   timestamptz NOT NULL DEFAULT now(),
   created_by   uuid,

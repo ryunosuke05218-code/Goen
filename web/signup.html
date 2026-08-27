@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>会員登録 | GOEN</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="index.html">GOEN</a>
+    <nav>
+      <a href="login.html">すでにアカウントをお持ちの方</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <h1>会員登録</h1>
+      <p class="lead">
+        登録後、続けてお支払い情報の入力（Stripe）に進みます。お支払い手続きが完了すると、
+        スマートフォンアプリで同じメールアドレス・パスワードを使ってログインできるようになります。
+      </p>
+
+      <p id="error" class="error-box" hidden></p>
+
+      <form id="signup-form">
+        <div>
+          <label for="displayName">お名前（表示名）</label>
+          <input type="text" id="displayName" name="displayName" required autocomplete="name" />
+        </div>
+        <div>
+          <label for="email">メールアドレス</label>
+          <input type="email" id="email" name="email" required autocomplete="email" />
+        </div>
+        <div>
+          <label for="password">パスワード（8文字以上）</label>
+          <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password" />
+        </div>
+        <div>
+          <label for="passwordConfirm">パスワード（確認）</label>
+          <input type="password" id="passwordConfirm" name="passwordConfirm" required minlength="8" autocomplete="new-password" />
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="agree" required />
+          <span><a href="terms.html" target="_blank">利用規約</a>および<a href="privacy.html" target="_blank">プライバシーポリシー</a>に同意します</span>
+        </label>
+        <button type="submit" class="btn" id="submit-btn">お支払い情報の入力へ進む</button>
+      </form>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div>
+      <a href="terms.html">利用規約</a>
+      <a href="privacy.html">プライバシーポリシー</a>
+      <a href="tokushoho.html">特定商取引法に基づく表記</a>
+    </div>
+    <p>&copy; 2026 GOEN</p>
+  </footer>
+
+  <script src="assets/config.js"></script>
+  <script src="assets/api.js"></script>
+  <script>
+    const form = document.getElementById('signup-form');
+    const errorEl = document.getElementById('error');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+
+      const displayName = document.getElementById('displayName').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const passwordConfirm = document.getElementById('passwordConfirm').value;
+
+      if (password !== passwordConfirm) {
+        showError(errorEl, new Error('パスワードが一致しません'));
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '処理中…';
+
+      try {
+        // 1. アカウント作成
+        const auth = await apiPost('/api/auth/register', { email, password, displayName });
+        saveSession(auth);
+
+        // 2. 続けてStripe Checkoutセッションを作成し、決済ページへ遷移する
+        const checkout = await apiPost('/api/billing/checkout', { planCode: STANDARD_PLAN_CODE }, auth.accessToken);
+        if (checkout.url) {
+          window.location.href = checkout.url;
+        } else {
+          // モック環境（開発時）: 決済ページへ遷移せず契約管理ページへ
+          window.location.href = 'account.html';
+        }
+      } catch (err) {
+        showError(errorEl, err);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'お支払い情報の入力へ進む';
+      }
+    });
+  </script>
+</body>
+</html>

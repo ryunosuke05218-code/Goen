@@ -14,6 +14,7 @@ namespace Goen.Api.Controllers;
 // 更新するのは本コントローラの役割であり、BillingController.CreateCheckoutは遷移URLの発行のみ行う。
 [ApiController]
 [AllowAnonymous]
+[AllowInactiveSubscription]
 [Route("api/billing/webhook")]
 public class StripeWebhookController : ControllerBase
 {

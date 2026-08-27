@@ -87,27 +87,27 @@ class IndustryItem {
 }
 
 /// 職種マスタ（Q-011解消）。人脈図の階層グルーピング・人物編集画面の選択肢に使用。
-/// F-030: 職種追加画面で業種も選択/新規作成できるようindustryCode/industryNameを持つ
+/// F-030拡張: 職種は複数の業種にまたがりうるため、業種は一覧（industryCodes/industryNames）で持つ
 class OccupationTypeItem {
   OccupationTypeItem({
     required this.occupationCode,
     required this.occupationName,
-    this.industryCode,
-    this.industryName,
+    required this.industryCodes,
+    required this.industryNames,
     required this.isActive,
   });
 
   final String occupationCode;
   final String occupationName;
-  final String? industryCode;
-  final String? industryName;
+  final List<String> industryCodes;
+  final List<String> industryNames;
   final bool isActive;
 
   factory OccupationTypeItem.fromJson(Map<String, dynamic> json) => OccupationTypeItem(
         occupationCode: json['occupationCode'] as String,
         occupationName: json['occupationName'] as String,
-        industryCode: json['industryCode'] as String?,
-        industryName: json['industryName'] as String?,
+        industryCodes: (json['industryCodes'] as List).map((e) => e as String).toList(),
+        industryNames: (json['industryNames'] as List).map((e) => e as String).toList(),
         isActive: json['isActive'] as bool,
       );
 }
@@ -241,6 +241,7 @@ class ContactItem {
     required this.occurredAt,
     this.place,
     this.note,
+    this.noteSummary,
     required this.hasMedia,
   });
 
@@ -249,6 +250,8 @@ class ContactItem {
   final DateTime occurredAt;
   final String? place;
   final String? note;
+  // F-011拡張: 接点メモのAI要約。ボタン押下時のみ生成・上書きされる（メモ編集だけでは自動更新されない）
+  final String? noteSummary;
   final bool hasMedia;
 
   factory ContactItem.fromJson(Map<String, dynamic> json) => ContactItem(
@@ -257,6 +260,7 @@ class ContactItem {
         occurredAt: DateTime.parse(json['occurredAt'] as String),
         place: json['place'] as String?,
         note: json['note'] as String?,
+        noteSummary: json['noteSummary'] as String?,
         hasMedia: json['hasMedia'] as bool,
       );
 }
@@ -334,31 +338,6 @@ class PersonVoiceDraft {
         mobile: json['mobile'] as String?,
         note: json['note'] as String?,
         metPlace: json['metPlace'] as String?,
-      );
-}
-
-/// F-005/F-006 人脈グラフ: AIによる関係性提案（未確定）
-class RelationSuggestion {
-  RelationSuggestion({
-    required this.relatedPersonId,
-    required this.relatedPersonName,
-    required this.relationType,
-    required this.reason,
-    required this.strength,
-  });
-
-  final String relatedPersonId;
-  final String relatedPersonName;
-  final String relationType;
-  final String reason;
-  final int strength;
-
-  factory RelationSuggestion.fromJson(Map<String, dynamic> json) => RelationSuggestion(
-        relatedPersonId: json['relatedPersonId'] as String,
-        relatedPersonName: json['relatedPersonName'] as String,
-        relationType: json['relationType'] as String,
-        reason: json['reason'] as String,
-        strength: json['strength'] as int,
       );
 }
 

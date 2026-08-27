@@ -8,9 +8,12 @@ namespace Goen.Api.Controllers;
 // サブスク課金。決済プロバイダはStripeを想定して実装するが、App Store/Google Play配布時は
 // ストアのIAP（アプリ内課金）使用が規約上必須になるため、ISubscriptionServiceの実装差し替えのみで
 // 対応できるよう設計している（本コントローラのコード自体は変更不要な想定）。
+// 契約状況の確認・チェックアウト/ポータルの発行は、まさに未契約・期限切れのユーザーが使う機能のため、
+// 課金ゲートの対象外とする。
 [ApiController]
 [Authorize]
 [Route("api/billing")]
+[AllowInactiveSubscription]
 public class BillingController : ControllerBase
 {
     private readonly ISubscriptionService _subscription;

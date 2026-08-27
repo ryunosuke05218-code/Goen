@@ -9,6 +9,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 class AppConfig {
   static const _override = String.fromEnvironment('API_BASE_URL');
 
+
+
+
   static String get apiBaseUrl {
     if (_override.isNotEmpty) return _override;
     // ポート番号は backend/src/Goen.Api/Properties/launchSettings.json の "http" プロファイル(applicationUrl)に合わせる

@@ -99,6 +99,7 @@ class PersonRepository {
     String? note,
     String? metPlace,
     List<SnsLink> snsLinks = const [],
+    String? introducerPersonId,
   }) async {
     final response = await _dio.put('/api/persons/$personId', data: {
       'fullName': fullName,
@@ -116,6 +117,7 @@ class PersonRepository {
       'note': note,
       'metPlace': metPlace,
       'snsLinks': snsLinks.map((s) => s.toJson()).toList(),
+      'introducerPersonId': introducerPersonId,
     });
     return PersonDetail.fromJson(response.data as Map<String, dynamic>);
   }
@@ -207,6 +209,15 @@ class PersonRepository {
     return ContactItem.fromJson(response.data as Map<String, dynamic>);
   }
 
+  // F-011拡張: 接点メモをAIが要約する。押すたびに最新のメモ内容で作り直し、DBへ上書き保存する
+  Future<ContactItem> summarizeContactNote({required String personId, required String contactId}) async {
+    final response = await _dio.post(
+      '/api/persons/$personId/contacts/$contactId/summarize',
+      options: Options(sendTimeout: const Duration(seconds: 60), receiveTimeout: const Duration(seconds: 60)),
+    );
+    return ContactItem.fromJson(response.data as Map<String, dynamic>);
+  }
+
   // F-010: 任意でHPリンク・資料ファイルを渡し、これらも根拠に含めてAI要約を更新する
   Future<void> generateCard(String personId, {String? hpUrl, File? file}) async {
     final formData = FormData.fromMap({
@@ -237,47 +248,6 @@ class PersonRepository {
       options: Options(sendTimeout: const Duration(seconds: 120), receiveTimeout: const Duration(seconds: 120)),
     );
     return PersonResearch.fromJson(response.data as Map<String, dynamic>);
-  }
-
-  // F-005/F-006 AIによる人脈グラフ提案・グラフ取得
-  Future<List<RelationSuggestion>> suggestRelations(String personId) async {
-    final response = await _dio.get('/api/persons/$personId/relations/suggest');
-    return (response.data as List).map((e) => RelationSuggestion.fromJson(e as Map<String, dynamic>)).toList();
-  }
-
-  Future<void> confirmRelations({
-    required String personId,
-    required List<RelationSuggestion> selected,
-  }) async {
-    await _dio.post('/api/persons/$personId/relations', data: {
-      'relations': selected
-          .map((s) => {
-                'relatedPersonId': s.relatedPersonId,
-                'relationType': s.relationType,
-                'strength': s.strength,
-              })
-          .toList(),
-    });
-  }
-
-  // F-005/F-006 手動登録: AI提案を経由せず、人物と関係種別を指定して直接登録する
-  Future<void> createRelation({
-    required String personId,
-    required String relatedPersonId,
-    required String relationType,
-    required int strength,
-    bool isBidirectional = false,
-  }) async {
-    await _dio.post('/api/persons/$personId/relations', data: {
-      'relations': [
-        {
-          'relatedPersonId': relatedPersonId,
-          'relationType': relationType,
-          'strength': strength,
-          'isBidirectional': isBidirectional,
-        },
-      ],
-    });
   }
 
   Future<NetworkGraph> getNetwork(String personId, {int maxDepth = 2}) async {

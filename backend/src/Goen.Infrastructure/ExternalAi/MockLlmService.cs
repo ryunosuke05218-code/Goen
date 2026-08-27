@@ -22,20 +22,6 @@ public class MockLlmService : ILlmService
         return Task.FromResult(draft);
     }
 
-    public Task<IReadOnlyList<RelationSuggestion>> SuggestRelationsAsync(
-        PersonContext target,
-        IReadOnlyList<PersonContext> candidates,
-        CancellationToken cancellationToken = default)
-    {
-        // カルテの紹介者欄と氏名が一致する候補のみを単純ルールで提案する（実LLM未接続時の最小限のダミー挙動）
-        var suggestions = candidates
-            .Where(c => target.IntroducerName is not null && c.FullName.Contains(target.IntroducerName))
-            .Select(c => new RelationSuggestion(c.PersonId, "referrer", "（ダミー）カルテの紹介者欄と氏名が一致するため", 3))
-            .ToList();
-
-        return Task.FromResult<IReadOnlyList<RelationSuggestion>>(suggestions);
-    }
-
     public Task<string> ComposeTextAsync(
         string systemPrompt,
         string userPrompt,

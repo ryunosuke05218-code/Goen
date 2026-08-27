@@ -5,8 +5,9 @@ import 'token_storage.dart';
 
 /// バックエンド(Goen.Api)への通信を担うクライアント。
 /// アクセストークンの自動付与と、401発生時のリフレッシュ→再試行を行う（F-001）。
+/// 402発生時（サブスク未契約・期限切れ、SubscriptionGateFilter）はonSubscriptionRequiredへ通知する。
 class ApiClient {
-  ApiClient({required this.storage, required this.onSessionExpired}) {
+  ApiClient({required this.storage, required this.onSessionExpired, required this.onSubscriptionRequired}) {
     dio = Dio(BaseOptions(
       baseUrl: AppConfig.apiBaseUrl,
       connectTimeout: const Duration(seconds: 10),
@@ -39,6 +40,9 @@ class ApiClient {
           await storage.clear();
           onSessionExpired();
         }
+        if (error.response?.statusCode == 402) {
+          onSubscriptionRequired();
+        }
         handler.next(error);
       },
     ));
@@ -47,6 +51,7 @@ class ApiClient {
   late final Dio dio;
   final TokenStorage storage;
   final void Function() onSessionExpired;
+  final void Function() onSubscriptionRequired;
 
   Future<bool> _tryRefresh() async {
     final refreshToken = await storage.readRefreshToken();

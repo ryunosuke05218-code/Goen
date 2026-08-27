@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../home/main_bottom_nav_bar.dart';
 import 'intro_letter_repository.dart';
@@ -15,14 +16,26 @@ String _formatDateTime(DateTime dt) =>
 
 /// F-034: 過去の紹介文作成の依頼・生成結果を読み返すための一覧。紹介文作成画面から遷移する。
 class IntroLetterHistoryScreen extends ConsumerWidget {
-  const IntroLetterHistoryScreen({super.key});
+  const IntroLetterHistoryScreen({super.key, this.returnPath});
+
+  // 戻るボタンで明示的に戻したい遷移元（例: 例文作成タブの'/home?tab=4'）。未指定時は通常のpop()に任せる。
+  final String? returnPath;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final historyAsync = ref.watch(_introLetterHistoryProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('紹介文作成の履歴')),
+      appBar: AppBar(
+        leading: returnPath == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '戻る',
+                onPressed: () => context.go(returnPath!),
+              ),
+        title: const Text('紹介文作成の履歴'),
+      ),
       body: historyAsync.when(
         data: (items) {
           if (items.isEmpty) {

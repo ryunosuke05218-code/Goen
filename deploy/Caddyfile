@@ -1,0 +1,16 @@
+# Caddyのリバースプロキシ設定。
+# ドメインを指定するだけで、Let's EncryptのHTTPS証明書取得・自動更新まで自動でやってくれる。
+#
+# myapp/docker-compose.yml の同じcompose内にwebサービス（コンテナ名 web）・apiサービス（コンテナ名 api,
+# 8080番でリッスン）がいる前提のため、localhostではなく「サービス名」で参照する
+# （Docker Composeが同一ネットワーク内のサービス名を自動的に名前解決してくれるため）。
+#
+# 使い方: 下記の goen-app.com / api.goen-app.com を実際に取得したドメインに置き換えること。
+
+goen-app.com, www.goen-app.com {
+	reverse_proxy web:80
+}
+
+api.goen-app.com {
+	reverse_proxy api:8080
+}

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>契約状況 | GOEN</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="index.html">GOEN</a>
+    <nav>
+      <a href="#" id="logout-link">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <h1>契約状況</h1>
+      <p class="lead" id="welcome"></p>
+
+      <p id="error" class="error-box" hidden></p>
+
+      <div id="loading">読み込み中…</div>
+
+      <div id="status-view" hidden>
+        <p>
+          ステータス: <span id="status-badge" class="status-badge"></span>
+        </p>
+        <p id="plan-line" hidden></p>
+        <p id="period-line" hidden></p>
+
+        <div id="active-actions" hidden>
+          <button class="btn btn-outline" id="portal-btn">お支払い方法・解約の管理</button>
+        </div>
+
+        <div id="inactive-actions" hidden>
+          <p>まだご契約がありません。以下のボタンからお申し込みいただけます。</p>
+          <button class="btn" id="checkout-btn">スタンダードプランを契約する</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>アカウントの削除について</h2>
+      <p class="lead">
+        アカウントの削除（退会）をご希望の場合は、サポート窓口までご連絡ください。
+        ご契約中の場合は、削除の前に上記の「お支払い方法・解約の管理」から解約手続きを行ってください。
+      </p>
+      <p>連絡先: <span class="placeholder">support@example.com（実際のサポート窓口アドレスに置き換えてください）</span></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div>
+      <a href="terms.html">利用規約</a>
+      <a href="privacy.html">プライバシーポリシー</a>
+      <a href="tokushoho.html">特定商取引法に基づく表記</a>
+    </div>
+    <p>&copy; 2026 GOEN</p>
+  </footer>
+
+  <script src="assets/config.js"></script>
+  <script src="assets/api.js"></script>
+  <script>
+    const errorEl = document.getElementById('error');
+    const loadingEl = document.getElementById('loading');
+    const statusViewEl = document.getElementById('status-view');
+
+    const STATUS_LABELS = {
+      trialing: 'トライアル中',
+      active: '契約中',
+      past_due: '支払いエラー',
+      canceled: '未契約',
+      incomplete: '未契約',
+    };
+
+    function statusClass(status) {
+      if (status === 'active' || status === 'trialing') return 'status-active';
+      if (status === 'past_due') return 'status-warning';
+      return 'status-inactive';
+    }
+
+    async function init() {
+      const token = requireLogin();
+      if (!token) return;
+
+      document.getElementById('welcome').textContent = `${getDisplayName() || ''} さん、こんにちは。`;
+
+      document.getElementById('logout-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        clearSession();
+        window.location.href = 'index.html';
+      });
+
+      try {
+        const status = await apiGet('/api/billing/subscription', token);
+        loadingEl.hidden = true;
+        statusViewEl.hidden = false;
+
+        const badge = document.getElementById('status-badge');
+        badge.textContent = STATUS_LABELS[status.status] || status.status;
+        badge.classList.add(statusClass(status.status));
+
+        if (status.planCode) {
+          const el = document.getElementById('plan-line');
+          el.textContent = `プラン: ${status.planCode}`;
+          el.hidden = false;
+        }
+        if (status.currentPeriodEnd) {
+          const el = document.getElementById('period-line');
+          el.textContent = `次回更新日: ${new Date(status.currentPeriodEnd).toLocaleDateString('ja-JP')}`;
+          el.hidden = false;
+        }
+
+        const isActive = status.status === 'active' || status.status === 'trialing';
+        document.getElementById('active-actions').hidden = !isActive;
+        document.getElementById('inactive-actions').hidden = isActive;
+      } catch (err) {
+        loadingEl.hidden = true;
+        showError(errorEl, err);
+      }
+    }
+
+    document.getElementById('portal-btn').addEventListener('click', async () => {
+      const token = getAccessToken();
+      try {
+        const session = await apiPost('/api/billing/portal', undefined, token);
+        if (session.url) {
+          window.location.href = session.url;
+        } else {
+          // モック環境（開発時）: 支払い管理ポータルは実際には存在しない
+          alert('開発環境（モック）のため、支払い管理ポータルへは遷移しません。');
+        }
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+
+    document.getElementById('checkout-btn').addEventListener('click', async () => {
+      const token = getAccessToken();
+      try {
+        const session = await apiPost('/api/billing/checkout', { planCode: STANDARD_PLAN_CODE }, token);
+        if (session.url) {
+          window.location.href = session.url;
+        } else {
+          window.location.reload();
+        }
+      } catch (err) {
+        showError(errorEl, err);
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ログイン | GOEN</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="index.html">GOEN</a>
+    <nav>
+      <a href="signup.html">会員登録はこちら</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <h1>ログイン</h1>
+      <p class="lead">ご契約状況の確認・お支払い方法の変更・解約はこちらから行えます。</p>
+
+      <p id="error" class="error-box" hidden></p>
+
+      <form id="login-form">
+        <div>
+          <label for="email">メールアドレス</label>
+          <input type="email" id="email" name="email" required autocomplete="email" />
+        </div>
+        <div>
+          <label for="password">パスワード</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn" id="submit-btn">ログイン</button>
+      </form>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div>
+      <a href="terms.html">利用規約</a>
+      <a href="privacy.html">プライバシーポリシー</a>
+      <a href="tokushoho.html">特定商取引法に基づく表記</a>
+    </div>
+    <p>&copy; 2026 GOEN</p>
+  </footer>
+
+  <script src="assets/config.js"></script>
+  <script src="assets/api.js"></script>
+  <script>
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('error');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'ログイン中…';
+
+      try {
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const auth = await apiPost('/api/auth/login', { email, password });
+        saveSession(auth);
+        window.location.href = 'account.html';
+      } catch (err) {
+        showError(errorEl, err);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'ログイン';
+      }
+    });
+  </script>
+</body>
+</html>

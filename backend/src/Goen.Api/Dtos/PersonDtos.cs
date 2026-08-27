@@ -84,7 +84,8 @@ public record UpdatePersonRequest(
     string? Address,
     string? Note,
     string? MetPlace,
-    IReadOnlyList<SnsLink>? SnsLinks);
+    IReadOnlyList<SnsLink>? SnsLinks,
+    Guid? IntroducerPersonId = null);
 
 public record OcrDraftResponse(
     string? FullName,
@@ -140,6 +141,7 @@ public record ContactItem(
     DateTimeOffset OccurredAt,
     string? Place,
     string? Note,
+    string? NoteSummary,
     bool HasMedia);
 
 public record VoiceMemoResponse(string TranscriptText, decimal Confidence);

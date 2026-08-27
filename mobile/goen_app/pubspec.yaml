@@ -73,11 +73,6 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # 開発用: エミュレータ/シミュレータからはホストPCのファイルに直接アクセスできないため、
-  # 名刺OCRの動作確認用テスト画像をアプリに同梱し、実機・エミュレータどちらでも読み込めるようにする。
-  assets:
-    - assets/test_data/test_nameplete1.png
-
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

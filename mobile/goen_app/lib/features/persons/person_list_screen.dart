@@ -92,7 +92,9 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
                     visualDensity: VisualDensity.compact,
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  onTap: () => context.push('/persons/${self.personId}'),
+                  // 人物一覧は'/home?tab=1'のタブとして開かれるため、通常のpop()に任せると
+                  // タブの状態が正しく復元されないことがある。戻り先を明示的に指定する。
+                  onTap: () => context.push('/persons/${self.personId}', extra: '/home?tab=1'),
                 ),
               );
             },
@@ -130,7 +132,7 @@ class _PersonListScreenState extends ConsumerState<PersonListScreen> {
                             .whereType<String>()
                             .where((e) => e.isNotEmpty)
                             .join(' / ')),
-                        onTap: () => context.push('/persons/${p.personId}'),
+                        onTap: () => context.push('/persons/${p.personId}', extra: '/home?tab=1'),
                       );
                     },
                   ),

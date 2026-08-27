@@ -30,9 +30,10 @@ public class PersonReadSyncService
             return;
         }
 
-        // 業種は「人物が選んだ職種に紐づく業種」を優先する（F-030）。会社のindustry_codeは入力経路がなく
-        // 実質未設定のままのため、職種側が未設定の場合のみ補助的にフォールバックする。
-        var industryCode = person.Occupation?.IndustryCode ?? person.Company?.IndustryCode;
+        // 業種は人物ごとに直接選択された値（F-030拡張、固定8種からのプルダウン選択）を優先する。
+        // 職種は複数業種にまたがりうるため業種の導出元にはできない。会社のindustry_codeは入力経路がなく
+        // 実質未設定のままのため、人物の業種が未設定の場合のみ補助的にフォールバックする。
+        var industryCode = person.IndustryCode ?? person.Company?.IndustryCode;
         var industryName = industryCode is null
             ? null
             : await _db.Industries.Where(i => i.IndustryCode == industryCode).Select(i => i.IndustryName).FirstOrDefaultAsync(ct);

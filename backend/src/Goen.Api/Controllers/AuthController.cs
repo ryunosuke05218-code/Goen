@@ -12,8 +12,10 @@ using Microsoft.Extensions.Logging;
 namespace Goen.Api.Controllers;
 
 // F-001 ログイン機能。自己登録（F-001拡張）・パスワードリセットも本コントローラで扱う。
+// サブスク未契約・期限切れでもログイン自体はできる必要があるため、課金ゲートの対象外とする。
 [ApiController]
 [Route("api/auth")]
+[AllowInactiveSubscription]
 public class AuthController : ControllerBase
 {
     private const int MaxFailedAttempts = 5;
