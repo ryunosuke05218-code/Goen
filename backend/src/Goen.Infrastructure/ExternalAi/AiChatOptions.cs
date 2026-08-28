@@ -5,7 +5,9 @@ namespace Goen.Infrastructure.ExternalAi;
 // 例:
 //   開発(Ollama)  : BaseUrl=http://192.168.1.2:11434/v1, Model=gemma3:4b, ApiKey=(任意の文字列でよい)
 //   開発(Groq)    : BaseUrl=https://api.groq.com/openai/v1, Model=llama-3.3-70b-versatile, ApiKey=実キー
-//   本番(Gemini)  : BaseUrl=https://generativelanguage.googleapis.com/v1beta/openai, Model=gemini-2.5-flash, ApiKey=実キー
+//   本番(Gemini)  : BaseUrl=https://generativelanguage.googleapis.com/v1beta/openai, Model=gemini-3.5-flash-lite, ApiKey=実キー
+//     （名刺OCR・音声文字起こし中心の用途向けにコスパ重視でFlash-Liteを選定。複雑な推論が必要な機能
+//      （AI人脈相談の経路探索等）で精度不足を感じたらModelだけgemini-3.6-flash等に差し替えればよい）
 // ApiKeyは appsettings に直接書かず、必ず dotnet user-secrets または環境変数で設定すること。
 public class AiChatOptions
 {

@@ -6,5 +6,8 @@ COPY . /usr/share/nginx/html
 # Nginxの実行ユーザーから読めず403 Forbiddenになることがあるため、明示的に読み取り可能にする。
 RUN chmod -R a+rX /usr/share/nginx/html
 
-# SPAではなく複数のhtmlファイルなので、Nginxの既定設定（ファイルをそのまま返す）のままで問題ない。
+# JS/CSSにキャッシュ制御ヘッダを付与する（config.js等の更新がブラウザキャッシュで反映されない
+# トラブルを防ぐため。nginx.conf参照）。
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 80

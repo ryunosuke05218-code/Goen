@@ -184,6 +184,7 @@ CREATE TABLE users (
   status          text NOT NULL CHECK (status IN ('active','suspended','retired')) DEFAULT 'active',
   last_login_at   timestamptz,
   allow_mutual_registration boolean NOT NULL DEFAULT true, -- F-028: 相互人脈登録を受け入れるか（設定画面でON/OFF切替可）
+  allow_notifications boolean NOT NULL DEFAULT true, -- 通知（お知らせ・アップデート情報等）を受け取るか（設定画面でON/OFF切替可）
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      uuid,
   updated_at      timestamptz NOT NULL DEFAULT now(),

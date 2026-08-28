@@ -7,6 +7,7 @@ import '../../core/biometric_settings.dart';
 import '../../core/display_settings.dart';
 import '../../core/providers.dart';
 import '../home/main_bottom_nav_bar.dart';
+import '../persons/models/person_models.dart';
 import '../persons/person_repository.dart';
 
 // GOEN公式Webサイト（会員登録・契約管理・法的情報のページ）。デプロイ先が変わった場合はここを更新する。
@@ -36,6 +37,253 @@ Future<void> _showAccountDeletionInfo(BuildContext context) {
   );
 }
 
+// 表示名の変更。相互人脈登録・通知設定は現在値をそのまま維持して送る。
+Future<void> _showEditDisplayNameDialog(BuildContext context, WidgetRef ref, UserSettings settings) async {
+  final controller = TextEditingController(text: settings.displayName);
+  final formKey = GlobalKey<FormState>();
+  bool isSubmitting = false;
+  String? errorMessage;
+
+  final saved = await showDialog<bool>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('表示名を変更'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: '表示名', border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.trim().isEmpty) ? '表示名を入力してください' : null,
+              ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: isSubmitting ? null : () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: isSubmitting
+                ? null
+                : () async {
+                    if (!formKey.currentState!.validate()) return;
+                    setState(() {
+                      isSubmitting = true;
+                      errorMessage = null;
+                    });
+                    try {
+                      await ref.read(personRepositoryProvider).updateMySettings(
+                            displayName: controller.text.trim(),
+                            allowMutualRegistration: settings.allowMutualRegistration,
+                            allowNotifications: settings.allowNotifications,
+                          );
+                      if (context.mounted) Navigator.of(context).pop(true);
+                    } catch (e) {
+                      setState(() {
+                        isSubmitting = false;
+                        errorMessage = '更新に失敗しました: $e';
+                      });
+                    }
+                  },
+            child: isSubmitting
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('保存'),
+          ),
+        ],
+      ),
+    ),
+  );
+  controller.dispose();
+  if (saved == true) {
+    ref.invalidate(userSettingsProvider);
+  }
+}
+
+// メールアドレスの変更。本人確認のため現在のパスワードが必須。
+Future<void> _showChangeEmailDialog(BuildContext context, WidgetRef ref, UserSettings settings) async {
+  final emailController = TextEditingController(text: settings.email);
+  final passwordController = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+  bool isSubmitting = false;
+  String? errorMessage;
+
+  final saved = await showDialog<bool>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('メールアドレスを変更'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: emailController,
+                autofocus: true,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: '新しいメールアドレス', border: OutlineInputBorder()),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'メールアドレスを入力してください';
+                  if (!v.contains('@')) return '正しいメールアドレスを入力してください';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '現在のパスワード（本人確認）', border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? '現在のパスワードを入力してください' : null,
+              ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: isSubmitting ? null : () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: isSubmitting
+                ? null
+                : () async {
+                    if (!formKey.currentState!.validate()) return;
+                    setState(() {
+                      isSubmitting = true;
+                      errorMessage = null;
+                    });
+                    final error = await ref.read(authSessionProvider.notifier).changeEmail(
+                          newEmail: emailController.text.trim(),
+                          currentPassword: passwordController.text,
+                        );
+                    if (error == null) {
+                      if (context.mounted) Navigator.of(context).pop(true);
+                    } else {
+                      setState(() {
+                        isSubmitting = false;
+                        errorMessage = error;
+                      });
+                    }
+                  },
+            child: isSubmitting
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('保存'),
+          ),
+        ],
+      ),
+    ),
+  );
+  emailController.dispose();
+  passwordController.dispose();
+  if (saved == true) {
+    ref.invalidate(userSettingsProvider);
+  }
+}
+
+// パスワードの変更（ログイン中に実施）。「パスワードをお忘れですか」とは別フロー。
+Future<void> _showChangePasswordDialog(BuildContext context, WidgetRef ref) async {
+  final currentController = TextEditingController();
+  final newController = TextEditingController();
+  final confirmController = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+  bool isSubmitting = false;
+  String? errorMessage;
+
+  final saved = await showDialog<bool>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('パスワードを変更'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: currentController,
+                autofocus: true,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '現在のパスワード', border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? '現在のパスワードを入力してください' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: newController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '新しいパスワード（8文字以上）', border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.length < 8) ? 'パスワードは8文字以上で設定してください' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: confirmController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '新しいパスワード（確認）', border: OutlineInputBorder()),
+                validator: (v) => (v != newController.text) ? 'パスワードが一致しません' : null,
+              ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: isSubmitting ? null : () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: isSubmitting
+                ? null
+                : () async {
+                    if (!formKey.currentState!.validate()) return;
+                    setState(() {
+                      isSubmitting = true;
+                      errorMessage = null;
+                    });
+                    final error = await ref.read(authSessionProvider.notifier).changePassword(
+                          currentPassword: currentController.text,
+                          newPassword: newController.text,
+                        );
+                    if (error == null) {
+                      if (context.mounted) Navigator.of(context).pop(true);
+                    } else {
+                      setState(() {
+                        isSubmitting = false;
+                        errorMessage = error;
+                      });
+                    }
+                  },
+            child: isSubmitting
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('保存'),
+          ),
+        ],
+      ),
+    ),
+  );
+  currentController.dispose();
+  newController.dispose();
+  confirmController.dispose();
+  if (saved == true && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('パスワードを変更しました')));
+  }
+}
+
 final userSettingsProvider = FutureProvider.autoDispose((ref) async {
   final repo = ref.watch(personRepositoryProvider);
   return repo.getMySettings();
@@ -50,7 +298,6 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final auth = ref.watch(authSessionProvider);
     final display = ref.watch(displaySettingsProvider);
     final displayNotifier = ref.read(displaySettingsProvider.notifier);
     final biometricEnabled = ref.watch(biometricSettingsProvider);
@@ -70,12 +317,40 @@ class SettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          if (auth.email != null)
-            ListTile(
-              leading: const Icon(Icons.person_outline),
-              title: Text(auth.userDisplayName ?? ''),
-              subtitle: Text(auth.email!),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('アカウント', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          userSettingsAsync.when(
+            loading: () => const Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator()),
+            error: (err, st) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text('アカウント情報の取得に失敗しました: $err', style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ),
+            data: (settings) => Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(settings.displayName),
+                  subtitle: Text(settings.email),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showEditDisplayNameDialog(context, ref, settings),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.email_outlined),
+                  title: const Text('メールアドレスを変更'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showChangeEmailDialog(context, ref, settings),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.lock_outline),
+                  title: const Text('パスワードを変更'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showChangePasswordDialog(context, ref),
+                ),
+              ],
+            ),
+          ),
           const Divider(),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -190,7 +465,42 @@ class SettingsScreen extends ConsumerWidget {
               value: settings.allowMutualRegistration,
               onChanged: (v) async {
                 try {
-                  await ref.read(personRepositoryProvider).updateMySettings(allowMutualRegistration: v);
+                  await ref.read(personRepositoryProvider).updateMySettings(
+                        displayName: settings.displayName,
+                        allowMutualRegistration: v,
+                        allowNotifications: settings.allowNotifications,
+                      );
+                  ref.invalidate(userSettingsProvider);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新に失敗しました: $e')));
+                  }
+                }
+              },
+            ),
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('通知', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          userSettingsAsync.when(
+            loading: () => const Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator()),
+            error: (err, st) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text('設定の取得に失敗しました: $err', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ),
+            data: (settings) => SwitchListTile(
+              title: const Text('お知らせ・アップデート情報の通知'),
+              subtitle: const Text('メールアドレス変更・パスワード変更などのセキュリティ通知は、この設定に関わらず常に送信されます'),
+              value: settings.allowNotifications,
+              onChanged: (v) async {
+                try {
+                  await ref.read(personRepositoryProvider).updateMySettings(
+                        displayName: settings.displayName,
+                        allowMutualRegistration: settings.allowMutualRegistration,
+                        allowNotifications: v,
+                      );
                   ref.invalidate(userSettingsProvider);
                 } catch (e) {
                   if (context.mounted) {

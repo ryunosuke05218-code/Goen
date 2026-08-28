@@ -134,6 +134,62 @@ class AuthSessionNotifier extends Notifier<AuthState> {
     state = AuthState(status: AuthStatus.subscriptionRequired, userDisplayName: state.userDisplayName, email: state.email);
   }
 
+  // 設定画面: メールアドレス変更。本人確認のため現在のパスワードが必要。
+  Future<String?> changeEmail({required String newEmail, required String currentPassword}) async {
+    final accessToken = await _storage.readAccessToken();
+    if (accessToken == null) return 'ログインし直してから再度お試しください。';
+
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    try {
+      await dio.put(
+        '/api/auth/email',
+        data: {'newEmail': newEmail, 'currentPassword': currentPassword},
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+      state = AuthState(status: state.status, userDisplayName: state.userDisplayName, email: newEmail);
+      return null;
+    } on DioException catch (e) {
+      final message = (e.response?.data is Map) ? (e.response?.data as Map)['message'] as String? : null;
+      if (e.response?.statusCode == 401) {
+        return message ?? '現在のパスワードが正しくありません。';
+      }
+      if (e.response?.statusCode == 409) {
+        return message ?? 'このメールアドレスは既に使用されています。';
+      }
+      return message ?? '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。';
+    }
+  }
+
+  // 設定画面: パスワード変更（ログイン中に実施）。成功時は新しいトークンをそのまま保存し、再ログイン不要にする。
+  Future<String?> changePassword({required String currentPassword, required String newPassword}) async {
+    final accessToken = await _storage.readAccessToken();
+    if (accessToken == null) return 'ログインし直してから再度お試しください。';
+
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    try {
+      final response = await dio.put(
+        '/api/auth/password',
+        data: {'currentPassword': currentPassword, 'newPassword': newPassword},
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+      final data = response.data as Map<String, dynamic>;
+      await _storage.saveTokens(
+        accessToken: data['accessToken'] as String,
+        refreshToken: data['refreshToken'] as String,
+      );
+      return null;
+    } on DioException catch (e) {
+      final message = (e.response?.data is Map) ? (e.response?.data as Map)['message'] as String? : null;
+      if (e.response?.statusCode == 401) {
+        return message ?? '現在のパスワードが正しくありません。';
+      }
+      if (e.response?.statusCode == 400) {
+        return message ?? '入力内容を確認してください。';
+      }
+      return message ?? '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。';
+    }
+  }
+
   // バックエンドはメールアドレスの存在有無に関わらず常に200を返す（列挙防止）。
   // 通信エラー時のみ success=false とし、呼び出し元は「コード入力へ進めてよいか」を判断できる。
   Future<(bool success, String message)> forgotPassword({required String email}) async {

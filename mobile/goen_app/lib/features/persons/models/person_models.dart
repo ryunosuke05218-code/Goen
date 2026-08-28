@@ -455,24 +455,27 @@ class IndustryBreakdown {
       );
 }
 
-// F-028: ログイン中ユーザー自身の設定
+// ログイン中ユーザー自身の設定（表示名、F-028相互人脈登録、通知のON/OFF）
 class UserSettings {
   UserSettings({
     required this.userId,
     required this.email,
     required this.displayName,
     required this.allowMutualRegistration,
+    required this.allowNotifications,
   });
 
   final String userId;
   final String email;
   final String displayName;
   final bool allowMutualRegistration;
+  final bool allowNotifications;
 
   factory UserSettings.fromJson(Map<String, dynamic> json) => UserSettings(
         userId: json['userId'] as String,
         email: json['email'] as String,
         displayName: json['displayName'] as String,
         allowMutualRegistration: json['allowMutualRegistration'] as bool,
+        allowNotifications: json['allowNotifications'] as bool,
       );
 }

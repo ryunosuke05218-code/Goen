@@ -11,6 +11,7 @@ public class User
     public string Status { get; set; } = "active"; // active / suspended / retired
     public DateTimeOffset? LastLoginAt { get; set; }
     public bool AllowMutualRegistration { get; set; } = true; // F-028: 相互人脈登録を受け入れるか
+    public bool AllowNotifications { get; set; } = true; // 通知（お知らせ・アップデート情報等）を受け取るか
 
     public DateTimeOffset CreatedAt { get; set; }
     public Guid? CreatedBy { get; set; }

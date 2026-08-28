@@ -187,6 +187,25 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// 未処理の例外（500）発生時、CORSミドルウェアを通らずに素の空レスポンスが返ることがあり、
+// ブラウザ側では実際の原因（500）ではなく「CORSでブロックされた」という紛らわしい表示になってしまう。
+// 例外時も必ずCORSヘッダーとJSON本文を付けて返すことで、実際のエラー内容を判別できるようにする。
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var origin = context.Request.Headers.Origin.ToString();
+        if (!string.IsNullOrEmpty(origin))
+        {
+            context.Response.Headers.AccessControlAllowOrigin = origin;
+            context.Response.Headers.Vary = "Origin";
+        }
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { message = "サーバーエラーが発生しました。しばらくしてから再度お試しください。" });
+    });
+});
+
 app.UseCors(DevCorsPolicy);
 if (!app.Environment.IsDevelopment())
 {

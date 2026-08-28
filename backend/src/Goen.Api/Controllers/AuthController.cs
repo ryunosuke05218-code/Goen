@@ -4,6 +4,7 @@ using Goen.Domain.Entities;
 using Goen.Infrastructure.Messaging;
 using Goen.Infrastructure.Persistence;
 using Goen.Infrastructure.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -238,6 +239,102 @@ public class AuthController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         return Ok(ToAuthResponse(tokens, stored.User));
+    }
+
+    // 設定画面: メールアドレス変更。本人確認のため現在のパスワードを必須にする。
+    [Authorize]
+    [HttpPut("email")]
+    public async Task<IActionResult> ChangeEmail(ChangeEmailRequest request, CancellationToken ct)
+    {
+        var newEmail = request.NewEmail.Trim();
+        if (string.IsNullOrWhiteSpace(newEmail) || !newEmail.Contains('@'))
+        {
+            return BadRequest(new { message = "正しいメールアドレスを入力してください。" });
+        }
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == User.GetUserId(), ct);
+        if (user is null) return NotFound();
+
+        if (!_hasher.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            return Unauthorized(new { message = "現在のパスワードが正しくありません。" });
+        }
+
+        var exists = await _db.Users.AnyAsync(u => u.UserId != user.UserId && u.Email.ToLower() == newEmail.ToLowerInvariant(), ct);
+        if (exists)
+        {
+            return Conflict(new { message = "このメールアドレスは既に使用されています。" });
+        }
+
+        var oldEmail = user.Email;
+        user.Email = newEmail;
+        user.UpdatedBy = user.UserId;
+        await _db.SaveChangesAsync(ct);
+
+        // 変更に心当たりがない場合に気づけるよう、旧アドレスへ通知する（送信失敗しても変更自体は成立させる）
+        try
+        {
+            await _email.SendAsync(
+                oldEmail,
+                "【GOEN】メールアドレスが変更されました",
+                $"アカウントのメールアドレスが {newEmail} に変更されました。\n\n" +
+                "心当たりがない場合は、至急パスワードの再設定を行い、サポート窓口までご連絡ください。",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "メールアドレス変更通知メールの送信に失敗しました");
+        }
+
+        return Ok(new { message = "メールアドレスを変更しました。" });
+    }
+
+    // 設定画面: パスワード変更（ログイン中に実施）。パスワードを忘れた場合のForgotPassword/ResetPasswordとは別フロー。
+    [Authorize]
+    [HttpPut("password")]
+    public async Task<ActionResult<AuthResponse>> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
+    {
+        if (request.NewPassword.Length < MinPasswordLength)
+        {
+            return BadRequest(new { message = $"新しいパスワードは{MinPasswordLength}文字以上で設定してください。" });
+        }
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == User.GetUserId(), ct);
+        if (user is null) return NotFound();
+
+        if (!_hasher.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            return Unauthorized(new { message = "現在のパスワードが正しくありません。" });
+        }
+
+        user.PasswordHash = _hasher.Hash(request.NewPassword);
+        user.UpdatedBy = user.UserId;
+
+        // 他の端末・セッションの安全のため既存のリフレッシュトークンは全て失効させたうえで、
+        // 今回のリクエスト（この端末）用に新しいトークンを発行し直し、再ログインなしで継続利用できるようにする。
+        var activeTokens = await _db.AuthTokens.Where(t => t.UserId == user.UserId && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var token in activeTokens)
+        {
+            token.RevokedAt = DateTimeOffset.UtcNow;
+        }
+
+        var tokens = await IssueTokensAsync(user, ct);
+        await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            await _email.SendAsync(
+                user.Email,
+                "【GOEN】パスワードが変更されました",
+                "アカウントのパスワードが変更されました。心当たりがない場合は、至急サポート窓口までご連絡ください。",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "パスワード変更通知メールの送信に失敗しました");
+        }
+
+        return Ok(ToAuthResponse(tokens, user));
     }
 
     private async Task<IssuedTokens> IssueTokensAsync(User user, CancellationToken ct)

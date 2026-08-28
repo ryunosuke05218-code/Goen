@@ -39,7 +39,7 @@ public class UsersController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == User.GetUserId(), ct);
         if (user is null) return NotFound();
 
-        return Ok(new UserSettingsResponse(user.UserId, user.Email, user.DisplayName, user.AllowMutualRegistration));
+        return Ok(ToResponse(user));
     }
 
     [HttpPut("me/settings")]
@@ -48,10 +48,20 @@ public class UsersController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == User.GetUserId(), ct);
         if (user is null) return NotFound();
 
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            return BadRequest(new { message = "表示名を入力してください。" });
+        }
+
+        user.DisplayName = request.DisplayName.Trim();
         user.AllowMutualRegistration = request.AllowMutualRegistration;
+        user.AllowNotifications = request.AllowNotifications;
         user.UpdatedBy = User.GetUserId();
         await _db.SaveChangesAsync(ct);
 
-        return Ok(new UserSettingsResponse(user.UserId, user.Email, user.DisplayName, user.AllowMutualRegistration));
+        return Ok(ToResponse(user));
     }
+
+    private static UserSettingsResponse ToResponse(Domain.Entities.User user) => new(
+        user.UserId, user.Email, user.DisplayName, user.AllowMutualRegistration, user.AllowNotifications);
 }

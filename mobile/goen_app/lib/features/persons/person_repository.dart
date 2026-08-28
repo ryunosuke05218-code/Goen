@@ -275,15 +275,23 @@ class PersonRepository {
     return IndustryBreakdown.fromJson(response.data as Map<String, dynamic>);
   }
 
-  // F-028: 自分自身の設定（相互人脈登録のON/OFF等）
+  // 自分自身の設定（表示名、F-028相互人脈登録、通知のON/OFF等）
   Future<UserSettings> getMySettings() async {
     final response = await _dio.get('/api/users/me');
     return UserSettings.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<UserSettings> updateMySettings({required bool allowMutualRegistration}) async {
+  // 更新は3項目まとめて送る仕様（バックエンドのUpdateUserSettingsRequest参照）のため、
+  // 呼び出し側は変更しない項目も現在値をそのまま渡すこと。
+  Future<UserSettings> updateMySettings({
+    required String displayName,
+    required bool allowMutualRegistration,
+    required bool allowNotifications,
+  }) async {
     final response = await _dio.put('/api/users/me/settings', data: {
+      'displayName': displayName,
       'allowMutualRegistration': allowMutualRegistration,
+      'allowNotifications': allowNotifications,
     });
     return UserSettings.fromJson(response.data as Map<String, dynamic>);
   }
