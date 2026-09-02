@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'core/auth_session.dart';
 import 'core/display_settings.dart';
+import 'core/goen_rings_mark.dart';
+import 'core/goen_theme.dart';
 import 'core/providers.dart';
 import 'features/ai_assistant/ai_assistant_history_screen.dart';
 import 'features/ai_assistant/ai_assistant_screen.dart';
@@ -215,8 +218,8 @@ class GoenApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'GOEN',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-      darkTheme: ThemeData(colorSchemeSeed: Colors.indigo, brightness: Brightness.dark, useMaterial3: true),
+      theme: GoenTheme.light(),
+      darkTheme: GoenTheme.dark(),
       themeMode: displaySettings.themeMode,
       routerConfig: router,
       builder: (context, child) {
@@ -232,11 +235,39 @@ class GoenApp extends ConsumerWidget {
   }
 }
 
+/// 認証状態の判定が終わるまでの一瞬だけ表示するスプラッシュ。
+/// アプリアイコンと同じ深紅の地に三つ輪の意匠を敷き、起動直後からブランドの世界観を伝える。
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return Scaffold(
+      backgroundColor: GoenColors.primary,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GoenRingsMark(size: 120, color: GoenColors.ivory, strokeWidthRatio: 0.18),
+            const SizedBox(height: 20),
+            Text(
+              'G O E N',
+              style: GoogleFonts.notoSerifJp(
+                color: GoenColors.ivory,
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 6,
+              ),
+            ),
+            const SizedBox(height: 40),
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: GoenColors.ivory.withValues(alpha: 0.8)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

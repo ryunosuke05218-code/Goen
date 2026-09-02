@@ -1,24 +1,14 @@
-import 'dart:io' show Platform;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
-
-/// 開発用のAPIベースURL。
-/// Android実機/エミュレータからは 10.0.2.2 でホストPCの192.168.1.2へ到達できる。
-/// iOSシミュレータ・Webはホストの192.168.1.2をそのまま利用できる。
-/// 実機での動作確認やステージング接続時は --dart-define=API_BASE_URL=https://... で上書きする。
+/// APIベースURL。
+/// デフォルトは本番API（https://api.goen-app.com）。リリースビルドで
+/// --dart-define を付け忘れても本番に繋がるようにするための安全側デフォルト。
+/// ローカル開発時は --dart-define=API_BASE_URL=http://192.168.1.2:5295 のように
+/// 開発機のIP（ポート番号は backend/src/Goen.Api/Properties/launchSettings.json の
+/// "http" プロファイル(applicationUrl)に合わせる）で上書きする。
 class AppConfig {
   static const _override = String.fromEnvironment('API_BASE_URL');
 
-
-
-
   static String get apiBaseUrl {
     if (_override.isNotEmpty) return _override;
-    // ポート番号は backend/src/Goen.Api/Properties/launchSettings.json の "http" プロファイル(applicationUrl)に合わせる
-    // if (kIsWeb) return 'http://192.168.1.2:5295';
-    if (kIsWeb) return 'http://192.168.1.2:5295';
-    if (!kIsWeb && Platform.isAndroid) return 'http://192.168.1.2:5295';
-    // if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:5295';
-    return 'http://192.168.1.2:5295';
+    return 'https://api.goen-app.com';
   }
 }

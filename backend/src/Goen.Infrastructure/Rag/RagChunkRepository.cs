@@ -1,6 +1,7 @@
 using Goen.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Goen.Infrastructure.Rag;
 
@@ -133,13 +134,24 @@ public class RagChunkRepository
     }
 
     // ハイブリッド検索（ベクトル + 全文/トライグラム類似）をRRF（Reciprocal Rank Fusion）で統合する。
-    // テーブル設計書 9.1 のSQLを踏襲。
+    // テーブル設計書 9.1 のSQLをベースに、全文検索側は依頼文1本だけでなくAiAssistantServiceが
+    // LLMで展開した関連語（例:「工務店」→「住宅」「建設」等）も含めた複数語でOR検索できるようにしている。
     public async Task<List<RagSearchHit>> SearchAsync(
-        Guid ownerUserId, float[] queryEmbedding, string queryText, int limit, CancellationToken ct)
+        Guid ownerUserId, float[] queryEmbedding, IReadOnlyList<string> queryTerms, int limit, CancellationToken ct)
     {
         var (conn, shouldClose) = await AcquireConnectionAsync(ct);
         try
         {
+            // pg_trgmのデフォルト類似度しきい値(0.3)は、短い検索語（例:「注文住宅」）を長いチャンク本文
+            // （カルテ要約やメモの全文）と比較すると、語彙全体に占める一致トライグラムの割合が薄まって
+            // しきい値を超えず、txt CTEが実質常に空になってしまう。しきい値を緩め、部分一致でも拾えるようにする。
+            // トランザクション内でSET LOCALすることでこの接続の以後のクエリに影響を残さない。
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await using (var setCmd = new NpgsqlCommand("SET LOCAL pg_trgm.similarity_threshold = 0.1", conn, tx))
+            {
+                await setCmd.ExecuteNonQueryAsync(ct);
+            }
+
             const string sql = """
                 WITH vec AS (
                     SELECT chunk_id, person_id, source_type, content,
@@ -151,9 +163,16 @@ public class RagChunkRepository
                 ),
                 txt AS (
                     SELECT chunk_id, person_id, source_type, content,
-                           ROW_NUMBER() OVER (ORDER BY similarity(content, @query_text) DESC) AS rnk
-                    FROM rag_chunks
-                    WHERE owner_user_id = @owner_user_id AND content % @query_text
+                           ROW_NUMBER() OVER (ORDER BY best_sim DESC) AS rnk
+                    FROM (
+                        SELECT rc.chunk_id, rc.person_id, rc.source_type, rc.content,
+                               MAX(similarity(rc.content, t.term)) AS best_sim
+                        FROM rag_chunks rc
+                        CROSS JOIN unnest(@query_terms) AS t(term)
+                        WHERE rc.owner_user_id = @owner_user_id AND rc.content % t.term
+                        GROUP BY rc.chunk_id, rc.person_id, rc.source_type, rc.content
+                    ) scored
+                    ORDER BY best_sim DESC
                     LIMIT 50
                 ),
                 fused AS (
@@ -166,19 +185,25 @@ public class RagChunkRepository
                 ORDER BY score DESC
                 LIMIT @limit;
                 """;
-            await using var cmd = new NpgsqlCommand(sql, conn);
+            await using var cmd = new NpgsqlCommand(sql, conn, tx);
             cmd.Parameters.AddWithValue("owner_user_id", ownerUserId);
             cmd.Parameters.AddWithValue("query_vec", PgVectorFormat.ToLiteral(queryEmbedding));
-            cmd.Parameters.AddWithValue("query_text", queryText);
+            cmd.Parameters.Add(new NpgsqlParameter("query_terms", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = queryTerms.ToArray(),
+            });
             cmd.Parameters.AddWithValue("limit", limit);
 
             var result = new List<RagSearchHit>();
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            await using (var reader = await cmd.ExecuteReaderAsync(ct))
             {
-                result.Add(new RagSearchHit(
-                    reader.GetGuid(1), reader.GetGuid(0), reader.GetString(2), reader.GetString(3), reader.GetDouble(4)));
+                while (await reader.ReadAsync(ct))
+                {
+                    result.Add(new RagSearchHit(
+                        reader.GetGuid(1), reader.GetGuid(0), reader.GetString(2), reader.GetString(3), reader.GetDouble(4)));
+                }
             }
+            await tx.CommitAsync(ct);
             return result;
         }
         finally

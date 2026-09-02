@@ -21,20 +21,99 @@ Future<void> _openLink(BuildContext context, String url) async {
   }
 }
 
-Future<void> _showAccountDeletionInfo(BuildContext context) {
-  return showDialog<void>(
+// アカウント削除（退会）。取り返しがつかない操作のため、まず内容確認 → 現在のパスワード入力の2段階にする。
+Future<void> _showAccountDeletionFlow(BuildContext context, WidgetRef ref) async {
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('アカウント削除について'),
+      title: const Text('アカウントを削除しますか？'),
       content: const Text(
-        'アカウントの削除（退会）をご希望の場合は、GOEN公式Webサイトのサポート窓口までご連絡ください。\n\n'
-        'ご契約中の場合は、削除の前にご登録時のWebサイトから解約手続きを行ってください。',
+        'アカウントを削除すると、登録した人物・接点・メモなどのデータがすべて完全に削除され、元に戻すことはできません。\n\n'
+        'ご契約中のサブスクリプションも同時に解約されます。',
       ),
       actions: [
-        FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる')),
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('次へ進む'),
+        ),
       ],
     ),
   );
+  if (confirmed != true || !context.mounted) return;
+
+  final passwordController = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+  bool isSubmitting = false;
+  String? errorMessage;
+
+  final deleted = await showDialog<bool>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('本人確認'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('削除を実行するため、現在のパスワードを入力してください。'),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: passwordController,
+                autofocus: true,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '現在のパスワード', border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? '現在のパスワードを入力してください' : null,
+              ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: isSubmitting ? null : () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: isSubmitting
+                ? null
+                : () async {
+                    if (!formKey.currentState!.validate()) return;
+                    setState(() {
+                      isSubmitting = true;
+                      errorMessage = null;
+                    });
+                    final error = await ref
+                        .read(authSessionProvider.notifier)
+                        .deleteAccount(currentPassword: passwordController.text);
+                    if (error == null) {
+                      if (context.mounted) Navigator.of(context).pop(true);
+                    } else {
+                      setState(() {
+                        isSubmitting = false;
+                        errorMessage = error;
+                      });
+                    }
+                  },
+            child: isSubmitting
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('削除する'),
+          ),
+        ],
+      ),
+    ),
+  );
+  passwordController.dispose();
+  // 成功時はauthSessionのstateがunauthenticatedになり、go_routerが自動的にログイン画面へ遷移する。
+  if (deleted == true && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('アカウントを削除しました。')));
+  }
 }
 
 // 表示名の変更。相互人脈登録・通知設定は現在値をそのまま維持して送る。
@@ -553,8 +632,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.person_remove_outlined),
-            title: const Text('アカウント削除について'),
-            onTap: () => _showAccountDeletionInfo(context),
+            title: const Text('アカウント削除'),
+            onTap: () => _showAccountDeletionFlow(context, ref),
           ),
           const Divider(),
           ListTile(

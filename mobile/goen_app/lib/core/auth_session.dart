@@ -190,6 +190,31 @@ class AuthSessionNotifier extends Notifier<AuthState> {
     }
   }
 
+  // 設定画面: アカウント削除（退会）。本人確認のため現在のパスワードが必要。
+  // 成功時はローカルのセッション情報も破棄し、未認証状態に戻す（go_routerが自動的にログイン画面へ遷移する）。
+  Future<String?> deleteAccount({required String currentPassword}) async {
+    final accessToken = await _storage.readAccessToken();
+    if (accessToken == null) return 'ログインし直してから再度お試しください。';
+
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    try {
+      await dio.delete(
+        '/api/auth/me',
+        data: {'currentPassword': currentPassword},
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+      await _storage.clear();
+      state = const AuthState(status: AuthStatus.unauthenticated);
+      return null;
+    } on DioException catch (e) {
+      final message = (e.response?.data is Map) ? (e.response?.data as Map)['message'] as String? : null;
+      if (e.response?.statusCode == 401) {
+        return message ?? '現在のパスワードが正しくありません。';
+      }
+      return message ?? '通信エラーが発生しました。接続先設定(API_BASE_URL)を確認してください。';
+    }
+  }
+
   // バックエンドはメールアドレスの存在有無に関わらず常に200を返す（列挙防止）。
   // 通信エラー時のみ success=false とし、呼び出し元は「コード入力へ進めてよいか」を判断できる。
   Future<(bool success, String message)> forgotPassword({required String email}) async {

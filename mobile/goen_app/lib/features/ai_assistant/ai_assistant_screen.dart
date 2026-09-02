@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/bullet_text.dart';
 import '../home/main_bottom_nav_bar.dart';
 import '../intro_letter/intro_letter_screen.dart';
 import '../persons/relation_type.dart';
 import 'ai_assistant_history_screen.dart';
 import 'ai_assistant_repository.dart';
-import 'ai_result_diagram.dart';
 import 'models/assistant_models.dart';
 
 const _examplePrompts = [
@@ -140,25 +140,15 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> {
   }
 }
 
-enum ResultDisplayMode { list, diagram }
-
-/// AIの回答・経路・関連人物を表示するビュー。「リスト／図で見る」を切り替えられる。
+/// AIの回答・経路・関連人物を表示するビュー。
 /// 現在の相談結果（[AiAssistantScreen]）と、過去の履歴詳細（[AiAssistantHistoryDetailScreen]）の両方から共用する。
-class AssistantResultView extends StatefulWidget {
+class AssistantResultView extends StatelessWidget {
   const AssistantResultView({super.key, required this.result});
 
   final AssistantResult result;
 
   @override
-  State<AssistantResultView> createState() => AssistantResultViewState();
-}
-
-class AssistantResultViewState extends State<AssistantResultView> {
-  var _mode = ResultDisplayMode.list;
-
-  @override
   Widget build(BuildContext context) {
-    final result = widget.result;
     final hasResults = result.routes.isNotEmpty || result.hints.isNotEmpty;
 
     return Column(
@@ -179,75 +169,29 @@ class AssistantResultViewState extends State<AssistantResultView> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text(result.answer),
+                BulletText(result.answer),
               ],
             ),
           ),
         ),
         if (hasResults) ...[
           const SizedBox(height: 16),
-          Center(
-            child: SegmentedButton<ResultDisplayMode>(
-              segments: const [
-                ButtonSegment(value: ResultDisplayMode.list, label: Text('リスト'), icon: Icon(Icons.view_list_outlined)),
-                ButtonSegment(value: ResultDisplayMode.diagram, label: Text('図で見る'), icon: Icon(Icons.account_tree_outlined)),
-              ],
-              selected: {_mode},
-              onSelectionChanged: (selected) => setState(() => _mode = selected.first),
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (_mode == ResultDisplayMode.list) _buildList(context, result) else _buildDiagram(context, result),
+          if (result.routes.isNotEmpty) ...[
+            Text('おすすめの経路', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final route in result.routes) _RouteChain(route: route),
+          ],
+          if (result.hints.isNotEmpty) ...[
+            if (result.routes.isNotEmpty) const SizedBox(height: 16),
+            Text('関連しそうな人物', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            for (final hint in result.hints) _HintTile(hint: hint),
+          ],
         ] else ...[
           const SizedBox(height: 16),
           const Text('具体的な経路・関連人物は見つかりませんでした。上の回答文を参考にしてください。',
               style: TextStyle(color: Colors.grey)),
         ],
-      ],
-    );
-  }
-
-  Widget _buildList(BuildContext context, AssistantResult result) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (result.routes.isNotEmpty) ...[
-          Text('おすすめの経路', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          for (final route in result.routes) _RouteChain(route: route),
-        ],
-        if (result.hints.isNotEmpty) ...[
-          if (result.routes.isNotEmpty) const SizedBox(height: 16),
-          Text('関連しそうな人物', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          for (final hint in result.hints) _HintTile(hint: hint),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildDiagram(BuildContext context, AssistantResult result) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          '実線＝おすすめの経路　点線＝関連しそうな人物（タップで人物カルテへ）',
-          style: TextStyle(fontSize: 11, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          height: 420,
-          decoration: BoxDecoration(
-            border: Border.all(color: Theme.of(context).dividerColor),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: AiResultDiagram(
-            routes: result.routes,
-            hints: result.hints,
-            onPersonTap: (personId) => context.push('/persons/$personId'),
-          ),
-        ),
       ],
     );
   }

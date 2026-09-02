@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Goen.Api.Dtos;
 using Goen.Domain.Entities;
+using Goen.Infrastructure.Billing;
 using Goen.Infrastructure.Messaging;
 using Goen.Infrastructure.Persistence;
 using Goen.Infrastructure.Security;
@@ -29,17 +30,19 @@ public class AuthController : ControllerBase
     private readonly JwtTokenService _tokenService;
     private readonly IMemoryCache _cache;
     private readonly IEmailService _email;
+    private readonly ISubscriptionService _subscription;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         GoenDbContext db, Pbkdf2PasswordHasher hasher, JwtTokenService tokenService, IMemoryCache cache,
-        IEmailService email, ILogger<AuthController> logger)
+        IEmailService email, ISubscriptionService subscription, ILogger<AuthController> logger)
     {
         _db = db;
         _hasher = hasher;
         _tokenService = tokenService;
         _cache = cache;
         _email = email;
+        _subscription = subscription;
         _logger = logger;
     }
 
@@ -335,6 +338,82 @@ public class AuthController : ControllerBase
         }
 
         return Ok(ToAuthResponse(tokens, user));
+    }
+
+    // 設定画面: アカウント削除（退会）。本人確認のため現在のパスワードを必須にする。
+    // GOENは「個人アカウント＝1組織」の設計のため、退会＝組織ごと削除する。
+    // Appleガイドライン5.1.1(v)「アプリ内から削除を開始できること」に対応するための本格実装。
+    [Authorize]
+    [HttpDelete("me")]
+    public async Task<IActionResult> DeleteAccount(DeleteAccountRequest request, CancellationToken ct)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == User.GetUserId(), ct);
+        if (user is null) return NotFound();
+
+        if (!_hasher.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            return Unauthorized(new { message = "現在のパスワードが正しくありません。" });
+        }
+
+        var orgId = user.OrgId;
+        var email = user.Email;
+
+        // Stripe解約は削除に付随する処理のため、失敗しても退会自体は続行する（ログのみ残す）。
+        try
+        {
+            await _subscription.CancelSubscriptionAsync(orgId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "アカウント削除に伴うサブスク解約に失敗しました orgId={OrgId}", orgId);
+        }
+
+        // 「個人アカウント＝1組織」の設計上、組織配下のデータを全て削除すればアカウント削除になる。
+        // persons削除はperson_profiles/person_tags/person_relations/next_actions/ai_person_cards/
+        // person_research_results/contacts(→contact_media/transcripts)/intro_letter_requests/rag_chunks/
+        // persons_readへON DELETE CASCADEで連鎖する（db/ddl_goen_v1.0.sql参照）。
+        // それ以外の「personsを参照するがCASCADE指定のないテーブル」は先に個別クリーンアップする。
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE persons SET introducer_person_id = NULL WHERE org_id = {orgId} AND introducer_person_id IS NOT NULL", ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                DELETE FROM referral_needs
+                WHERE person_id IN (SELECT person_id FROM persons WHERE org_id = {orgId})
+                   OR user_id IN (SELECT user_id FROM users WHERE org_id = {orgId})
+                """, ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                DELETE FROM referrals
+                WHERE from_user_id IN (SELECT user_id FROM users WHERE org_id = {orgId})
+                   OR to_person_id IN (SELECT person_id FROM persons WHERE org_id = {orgId})
+                   OR target_person_id IN (SELECT person_id FROM persons WHERE org_id = {orgId})
+                """, ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM ai_assistant_queries WHERE org_id = {orgId}", ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM tags WHERE org_id = {orgId}", ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM import_jobs WHERE org_id = {orgId}", ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM persons WHERE org_id = {orgId}", ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM users WHERE org_id = {orgId}", ct);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM organizations WHERE org_id = {orgId}", ct);
+
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+
+        _logger.LogInformation("アカウントが削除されました email={Email} orgId={OrgId}", email, orgId);
+        return Ok(new { message = "アカウントを削除しました。" });
     }
 
     private async Task<IssuedTokens> IssueTokensAsync(User user, CancellationToken ct)

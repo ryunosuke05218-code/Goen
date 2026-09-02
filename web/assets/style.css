@@ -1,12 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
 :root {
-  --color-primary: #3f51b5;
-  --color-primary-dark: #303f9f;
-  --color-text: #1a1a2e;
-  --color-muted: #6b7280;
-  --color-bg: #f7f7fb;
-  --color-border: #e2e2ea;
-  --color-error: #d32f2f;
-  --color-success: #2e7d32;
+  /* GOENロゴ（深紅の地にアイボリーの三つ輪、明朝体のワードマーク）から採ったブランドカラー。
+     Flutterアプリ側のlib/core/goen_theme.dartと同じ値を使い、Web/アプリで色を揃えている。 */
+  --color-primary: #c0211f;
+  --color-primary-dark: #8f1917;
+  --color-primary-light: #de5a50;
+  --color-ivory: #f1e4d2;
+  --color-ivory-deep: #e7d5b8;
+  --color-paper: #fbf6ef;
+  --color-card: #f8f1e6;
+  --color-card-deep: #f3e9da;
+  --color-text: #2a1f1a;
+  --color-muted: #6a5a4d;
+  --color-border: #e9dcc5;
+  --color-border-strong: #d8c7ae;
+  --color-error: #a6420f;
+  --color-success: #2f6f4e;
+  --color-gold: #a9752e;
+
+  --font-serif: "Noto Serif JP", "Hiragino Mincho ProN", serif;
+  --font-sans: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
 }
 
 * {
@@ -15,9 +29,9 @@
 
 body {
   margin: 0;
-  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+  font-family: var(--font-sans);
   color: var(--color-text);
-  background: var(--color-bg);
+  background: var(--color-paper);
   line-height: 1.7;
 }
 
@@ -25,27 +39,61 @@ a {
   color: var(--color-primary);
 }
 
+h1, h2 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 header.site-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  background: #fff;
-  border-bottom: 1px solid var(--color-border);
+  background: var(--color-primary);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 
 header.site-header .logo {
-  font-weight: bold;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-serif);
+  font-weight: 600;
   font-size: 20px;
-  color: var(--color-text);
+  letter-spacing: 0.12em;
+  color: var(--color-ivory);
   text-decoration: none;
+}
+
+header.site-header .logo-mark {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+header.site-header .logo-mark circle {
+  fill: none;
+  stroke: var(--color-ivory);
+  stroke-width: 9;
 }
 
 header.site-header nav a {
   margin-left: 20px;
   text-decoration: none;
-  color: var(--color-text);
+  color: var(--color-ivory);
+  opacity: 0.92;
   font-size: 14px;
+}
+
+header.site-header nav a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+header.site-header nav a.btn {
+  opacity: 1;
 }
 
 main {
@@ -55,11 +103,45 @@ main {
 }
 
 .card {
-  background: #fff;
+  background: var(--color-card);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: 18px;
   padding: 32px;
   margin-bottom: 24px;
+}
+
+.card.hero {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  border: none;
+  color: var(--color-ivory);
+  padding: 44px 36px;
+}
+
+.card.hero h1,
+.card.hero .lead {
+  color: var(--color-ivory);
+}
+
+.card.hero .lead {
+  opacity: 0.92;
+}
+
+.card.hero .hero-rings {
+  position: absolute;
+  right: -30px;
+  bottom: -30px;
+  width: 220px;
+  height: 220px;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.card.hero .hero-rings circle {
+  fill: none;
+  stroke: var(--color-ivory);
+  stroke-width: 7;
 }
 
 h1 {
@@ -79,11 +161,14 @@ h2 {
 }
 
 .price {
+  font-family: var(--font-serif);
   font-size: 32px;
-  font-weight: bold;
+  font-weight: 700;
+  color: var(--color-primary);
 }
 
 .price small {
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: normal;
   color: var(--color-muted);
@@ -109,6 +194,10 @@ h2 {
   font-weight: bold;
 }
 
+.card.hero .feature-list li::before {
+  color: var(--color-ivory);
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -126,10 +215,20 @@ input[type="text"],
 input[type="email"],
 input[type="password"] {
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
   font-size: 15px;
+  background: #fff;
+  color: var(--color-text);
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(192, 33, 31, 0.15);
 }
 
 .checkbox-row {
@@ -148,15 +247,16 @@ button.btn,
 a.btn {
   display: inline-block;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-ivory);
   border: none;
-  border-radius: 8px;
-  padding: 12px 20px;
+  border-radius: 10px;
+  padding: 12px 22px;
   font-size: 15px;
   font-weight: bold;
   cursor: pointer;
   text-align: center;
   text-decoration: none;
+  transition: background-color 0.15s ease;
 }
 
 button.btn:hover,
@@ -165,38 +265,48 @@ a.btn:hover {
 }
 
 button.btn:disabled {
-  background: #b0b0c0;
+  background: var(--color-border-strong);
+  color: var(--color-muted);
   cursor: not-allowed;
+}
+
+.card.hero a.btn {
+  background: var(--color-ivory);
+  color: var(--color-primary-dark);
+}
+
+.card.hero a.btn:hover {
+  background: #fff;
 }
 
 button.btn-outline,
 a.btn-outline {
-  background: #fff;
+  background: transparent;
   color: var(--color-primary);
   border: 1px solid var(--color-primary);
 }
 
 button.btn-outline:hover,
 a.btn-outline:hover {
-  background: #eef0fb;
+  background: var(--color-card-deep);
 }
 
 .error-box {
-  background: #fdecea;
+  background: #f8e3d8;
   color: var(--color-error);
-  border: 1px solid #f5c6cb;
-  border-radius: 6px;
+  border: 1px solid #edc4a8;
+  border-radius: 8px;
   padding: 10px 14px;
   font-size: 14px;
 }
 
 .notice-box {
-  background: #fff8e1;
-  border: 1px solid #ffe08a;
-  border-radius: 6px;
+  background: var(--color-ivory);
+  border: 1px solid var(--color-ivory-deep);
+  border-radius: 8px;
   padding: 12px 16px;
   font-size: 13px;
-  color: #7a5c00;
+  color: var(--color-primary-dark);
   margin-bottom: 24px;
 }
 
@@ -209,17 +319,17 @@ a.btn-outline:hover {
 }
 
 .status-active {
-  background: #e6f4ea;
+  background: #e3efe6;
   color: var(--color-success);
 }
 
 .status-inactive {
-  background: #f1f1f4;
+  background: var(--color-card-deep);
   color: var(--color-muted);
 }
 
 .status-warning {
-  background: #fdecea;
+  background: #f8e3d8;
   color: var(--color-error);
 }
 
@@ -232,6 +342,7 @@ footer.site-footer {
 
 footer.site-footer a {
   margin: 0 8px;
+  color: var(--color-muted);
 }
 
 .legal main {
@@ -255,7 +366,7 @@ footer.site-footer a {
 
 .legal table th {
   width: 30%;
-  background: #f2f2f7;
+  background: var(--color-card-deep);
 }
 
 .placeholder {

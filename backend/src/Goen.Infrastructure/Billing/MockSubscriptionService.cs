@@ -43,6 +43,14 @@ public class MockSubscriptionService : ISubscriptionService
     public Task<BillingPortalSession> CreateBillingPortalSessionAsync(Guid orgId, CancellationToken cancellationToken = default)
         => Task.FromResult(new BillingPortalSession(""));
 
+    public async Task CancelSubscriptionAsync(Guid orgId, CancellationToken cancellationToken = default)
+    {
+        var org = await _db.Organizations.FirstOrDefaultAsync(o => o.OrgId == orgId, cancellationToken)
+            ?? throw new InvalidOperationException("組織が見つかりません。");
+        org.SubscriptionStatus = "canceled";
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     private static SubscriptionStatus ToStatus(Domain.Entities.Organization org) => new(
         org.SubscriptionStatus, org.SubscriptionProvider, org.SubscriptionPlanCode,
         org.SubscriptionCurrentPeriodEnd, org.TrialEndsAt);

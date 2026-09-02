@@ -50,6 +50,8 @@ dependencies:
   file_picker: 10.3.10
   # F-007/F-009 音声入力: OS標準の音声認識（Android/iOSネイティブ機能）を使うため追加費用・APIキー不要
   speech_to_text: ^7.3.0
+  # ブランドロゴ（明朝体の欧文＋和文）に合わせたタイポグラフィ用。初回表示時にフォントを取得しキャッシュする。
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:
@@ -62,6 +64,19 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # アプリアイコン生成。assets/icon/app_icon.png を差し替えて
+  # `dart run flutter_launcher_icons` を再実行するだけでiOS/Android両方のアイコンを更新できる。
+  flutter_launcher_icons: ^0.14.4
+
+# アイコン画像1枚（assets/icon/app_icon.png）から、iOS/Android向けの全サイズを自動生成する設定。
+# 画像を差し替えたら `dart run flutter_launcher_icons` を実行するだけで反映される。
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true # App Storeは透過を含むアイコンを許可しないため必須
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -72,6 +87,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/icon/app_icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

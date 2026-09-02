@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/voice_input_field.dart';
 import 'models/person_models.dart';
 import 'occupation_picker.dart';
+import 'person_list_screen.dart';
 import 'person_picker.dart';
 import 'person_repository.dart';
 import 'sns_links_editor.dart';
@@ -320,6 +321,9 @@ class _PersonRegisterConfirmScreenState
             introducerPersonId: _introducer?.personId,
           );
       if (!mounted) return;
+      // IndexedStackで人物一覧タブの状態が保持され続けるため、登録直後に明示的に無効化しないと
+      // 一覧に新規人物が反映されない（アプリ再起動まで気付かれない不具合になっていた）。
+      ref.invalidate(personListProvider);
       // F-007事後条件: 登録後は続けて音声メモ入力(S-005)へ遷移する
       context.pushReplacement('/persons/${person.personId}/voice-memo', extra: widget.returnPath);
     } catch (e) {

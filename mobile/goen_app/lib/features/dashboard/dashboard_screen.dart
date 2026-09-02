@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/goen_rings_mark.dart';
+import '../../core/goen_theme.dart';
 import '../persons/person_repository.dart';
 import 'dashboard_models.dart';
 import 'dashboard_repository.dart';
@@ -142,19 +144,44 @@ class _TotalCountCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [GoenColors.primary, GoenColors.primaryDark],
+          ),
+        ),
+        child: Stack(
           children: [
-            Icon(Icons.people_alt_outlined, size: 36, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('総登録人数', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                Text('$totalCount人', style: Theme.of(context).textTheme.headlineMedium),
-              ],
+            Positioned(
+              right: -18,
+              bottom: -18,
+              child: Opacity(
+                opacity: 0.16,
+                child: GoenRingsMark(size: 132, color: GoenColors.ivory, strokeWidthRatio: 0.16),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(22),
+              child: Row(
+                children: [
+                  Icon(Icons.people_alt_outlined, size: 34, color: GoenColors.ivory),
+                  const SizedBox(width: 16),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('総登録人数', style: TextStyle(fontSize: 12, color: GoenColors.ivory.withValues(alpha: 0.85))),
+                      Text(
+                        '$totalCount人',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: GoenColors.ivory),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),

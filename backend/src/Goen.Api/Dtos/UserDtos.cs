@@ -18,3 +18,6 @@ public record ChangeEmailRequest(string NewEmail, string CurrentPassword);
 
 // 設定画面: パスワード変更（ログイン中に行う。パスワードを忘れた場合のフローとは別）
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+
+// 設定画面: アカウント削除（本人確認のため現在のパスワードを必須にする）
+public record DeleteAccountRequest(string CurrentPassword);

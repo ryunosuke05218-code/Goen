@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'models/person_models.dart';
 import 'occupation_picker.dart';
+import 'person_list_screen.dart';
 import 'person_picker.dart';
 import 'person_repository.dart';
 import 'sns_links_editor.dart';
@@ -98,6 +99,10 @@ class _PersonEditScreenState extends ConsumerState<PersonEditScreen> {
             introducerPersonId: _introducerPersonId,
           );
       if (!mounted) return;
+      // IndexedStackでタブの状態が保持され続けるため、更新直後に明示的に無効化しないと
+      // 人物一覧・ダッシュボードの表示が古いまま残ってしまう。
+      ref.invalidate(personListProvider);
+      ref.invalidate(selfPersonProvider);
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;

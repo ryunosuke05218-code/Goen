@@ -72,6 +72,9 @@ class _SelfPersonRegisterScreenState extends ConsumerState<SelfPersonRegisterScr
             isSelf: true,
           );
       if (!mounted) return;
+      // IndexedStackでタブの状態が保持され続けるため、登録直後に明示的に無効化しないと
+      // ダッシュボード等の「自分の人物カルテ」表示が更新されない。
+      ref.invalidate(selfPersonProvider);
       Navigator.of(context).pop(person);
     } catch (e) {
       if (!mounted) return;

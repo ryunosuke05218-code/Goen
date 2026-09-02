@@ -116,8 +116,22 @@ public class AiAssistantService
 
     private async Task<List<AssistantHint>> SearchHintsAsync(Guid ownerUserId, string instruction, CancellationToken ct)
     {
-        var queryVector = await _embedding.EmbedQueryAsync(instruction, ct);
-        var hits = await _ragRepository.SearchAsync(ownerUserId, queryVector, instruction, RagHitLimit, ct);
+        // 「工務店」で検索しても業種名や会社名に「工務店」という語そのものが含まれるカルテしか
+        // ヒットしない問題への対応。依頼文をそのまま検索するのではなく、LLMに関連語・上位業種カテゴリ
+        // （例:「工務店」→ 住宅、建築、建設、リフォーム等）を挙げさせ、ベクトル検索・全文検索の両方に
+        // 反映することで意味的に近いカルテも拾えるようにする。
+        var expandedTerms = await ExpandQueryTermsAsync(instruction, ct);
+
+        var embeddingInput = expandedTerms.Count == 0
+            ? instruction
+            : instruction + "\n関連語: " + string.Join("、", expandedTerms);
+        var queryVector = await _embedding.EmbedQueryAsync(embeddingInput, ct);
+
+        var searchTerms = expandedTerms.Count == 0
+            ? new List<string> { instruction }
+            : new List<string> { instruction }.Concat(expandedTerms).Distinct().ToList();
+
+        var hits = await _ragRepository.SearchAsync(ownerUserId, queryVector, searchTerms, RagHitLimit, ct);
         if (hits.Count == 0) return new List<AssistantHint>();
 
         var bestPerPerson = hits
@@ -149,6 +163,51 @@ public class AiAssistantService
 
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength] + "…";
+
+    // 依頼文の語彙をそのまま検索するのではなく、同じ業界・分野を指す関連語や上位の業種カテゴリ名を
+    // LLMに列挙させる。ここで得られる語は検索クエリの拡張にのみ使い、回答本文には使わない
+    // （実データに存在しない会社名等を創作するリスクはExtractTargetAsync/ComposeAnswerAsync同様ここにもない）。
+    private async Task<List<string>> ExpandQueryTermsAsync(string instruction, CancellationToken ct)
+    {
+        const string systemPrompt = """
+            あなたは人脈管理アプリの検索アシスタントです。ユーザーの検索依頼から、人物カルテ（会社名・業種・
+            職種・メモ等）を探すために有効な検索キーワードを日本語で列挙してください。
+
+            依頼文に含まれる語そのものだけでなく、同じ業界・分野を指す関連語や、より広い業種カテゴリの名称も
+            必ず含めてください。
+            例:「工務店」→ 工務店、住宅、住宅建築、建築、建設、リフォーム、注文住宅、ハウスメーカー、不動産
+
+            必ず次のJSON形式のみで出力してください（説明文や前置きは不要）:
+            {"keywords": ["キーワード1", "キーワード2", ...]}
+
+            キーワードは3〜8個程度、それぞれ短い単語（1〜10文字程度）にしてください。推測が難しい場合は
+            依頼文中の語をそのまま挙げるだけでも構いません。
+            """;
+
+        try
+        {
+            var text = await _llm.ComposeTextAsync(systemPrompt, instruction, cancellationToken: ct);
+            var json = LenientJson.Parse(text);
+            if (!json.TryGetProperty("keywords", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            {
+                return new List<string>();
+            }
+
+            return arr.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.String)
+                .Select(e => e.GetString()?.Trim())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s!)
+                .Distinct()
+                .Take(8)
+                .ToList();
+        }
+        catch
+        {
+            // 展開に失敗しても致命的ではないため、呼び出し元は依頼文そのものでの検索にフォールバックする
+            return new List<string>();
+        }
+    }
 
     private async Task<(string? CompanyName, string? PersonName)> ExtractTargetAsync(string instruction, CancellationToken ct)
     {
@@ -323,14 +382,14 @@ public class AiAssistantService
 
             重要なルール:
             - 実データに存在しない人物名・会社名を創作してはいけません。
-            - 実データの一覧をそのまま書き写す・箇条書き記号や「/」「,」区切りの羅列をそのまま出力する、
-              といったことはせず、必ず読みやすい話し言葉の文章にしてください。
+            - 実データの一覧をそのまま機械的に書き写すのではなく、要点を整理して書いてください。
+            - 必ず「・」で始まる箇条書きで出力してください（1行1ポイント、前置きの文章は不要）。
             - ユーザーの依頼内容に直接答えることを最優先し、依頼と無関係な情報は書かないでください。
-            - 【紹介経路の候補】がある場合は「Aさん経由でBさんに紹介してもらうのがおすすめです」のように
-              具体的な経路として提案してください。
-            - 【関連しそうな人物】がある場合は「〇〇さんが知っている可能性があります」
-              「△△さんとはこのような接点があります」のように触れてください。
-            - 3〜6文程度で簡潔にまとめてください。
+            - 【紹介経路の候補】がある場合は「・Aさん経由でBさんに紹介してもらうのがおすすめです」のように
+              人物ごとに具体的な経路として提案してください。
+            - 【関連しそうな人物】がある場合は「・〇〇さんが知っている可能性があります（理由）」のように
+              人物ごとに1行で触れてください。
+            - 3〜6項目程度で簡潔にまとめてください。
             """;
 
         var sections = new List<string> { $"ユーザーの依頼: {instruction}" };

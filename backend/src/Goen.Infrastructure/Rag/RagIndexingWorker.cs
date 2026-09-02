@@ -110,7 +110,14 @@ public class RagIndexingWorker : BackgroundService
 
         var meta = await db.Persons
             .Where(p => p.PersonId == item.PersonId)
-            .Select(p => new { p.OrgId, p.OwnerUserId, p.Visibility, IndustryCode = p.Company != null ? p.Company.IndustryCode : null })
+            .Select(p => new
+            {
+                p.OrgId,
+                p.OwnerUserId,
+                p.Visibility,
+                // RagChunkBuilder.BuildProfileAsyncと同じ優先順位（人物直接の業種 > 会社の業種）に揃える。
+                IndustryCode = p.IndustryCode ?? (p.Company != null ? p.Company.IndustryCode : null),
+            })
             .FirstOrDefaultAsync(ct);
         if (meta is null)
         {

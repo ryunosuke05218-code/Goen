@@ -66,16 +66,20 @@ builder.Services.AddScoped<PersonReadSyncService>();
 builder.Services.AddScoped<MasterDataService>();
 builder.Services.AddScoped<NetworkGraphService>();
 
-// パスワードリセット等のメール送信（要件Q-004拡張）。本番はSendGridを使用する。
+// パスワードリセット等のメール送信（要件Q-004拡張）。本番はResend（無料枠が期限なし）を推奨、SendGridも選択可。
 // ApiKey未設定時はモック実装（ログ出力のみ、実送信しない）にフォールバックする。
 var emailOptions = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new EmailOptions();
-if (!string.Equals(emailOptions.Provider, "mock", StringComparison.OrdinalIgnoreCase))
+switch (emailOptions.Provider.ToLowerInvariant())
 {
-    builder.Services.AddHttpClient<IEmailService, SendGridEmailService>();
-}
-else
-{
-    builder.Services.AddScoped<IEmailService, MockEmailService>();
+    case "resend":
+        builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
+        break;
+    case "sendgrid":
+        builder.Services.AddHttpClient<IEmailService, SendGridEmailService>();
+        break;
+    default:
+        builder.Services.AddScoped<IEmailService, MockEmailService>();
+        break;
 }
 
 // サブスク課金。開発中はStripeを想定するが、App Store/Google Play配布時はストアのIAPへ切替が

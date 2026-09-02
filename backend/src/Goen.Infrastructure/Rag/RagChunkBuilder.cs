@@ -41,7 +41,11 @@ public class RagChunkBuilder
                 p.JobTitle,
                 p.MetPlace,
                 p.Version,
+                p.OccupationCode,
                 CompanyName = p.Company != null ? p.Company.CompanyName : null,
+                // 業種は人物に直接持たせている場合はそちらを優先し（m_occupation_type_industryが多対多のため
+                // 職種経由では一意に決まらない）、未設定なら会社の業種にフォールバックする。
+                IndustryCode = p.IndustryCode ?? (p.Company != null ? p.Company.IndustryCode : null),
             })
             .FirstOrDefaultAsync(ct);
 
@@ -50,11 +54,32 @@ public class RagChunkBuilder
         var profile = await _db.PersonProfiles.Where(x => x.PersonId == personId).FirstOrDefaultAsync(ct);
 
         // 都道府県マスタから名称を引く（person_profiles.pref_code経由）
+        // NpgsqlのSqlQueryRaw<T>（スカラー型）は結果を SELECT t."Value" FROM (<与えたSQL>) AS t の形で
+        // ラップするため、与えるSQL側の列名を "Value" にエイリアスしておく必要がある
+        // （エイリアスしないと「列t.Valueは存在しません」で実行時エラーになる）。
         string? prefName = null;
         if (profile?.PrefCode is not null)
         {
             prefName = await _db.Database.SqlQueryRaw<string>(
-                "SELECT pref_name FROM m_prefecture WHERE pref_code = {0}", profile.PrefCode)
+                """SELECT pref_name AS "Value" FROM m_prefecture WHERE pref_code = {0}""", profile.PrefCode)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        // 業種・職種はコード値のままだと検索語（「工務店」等）と一致しないため、マスタの名称を本文に含める。
+        // これがないと、AI指示（AiAssistantService）が「工務店→住宅関連」のように業種カテゴリで
+        // 探そうとしても、会社名に該当語がない限りヒントに一切ヒットしなかった。
+        string? industryName = null;
+        if (!string.IsNullOrWhiteSpace(row.IndustryCode))
+        {
+            industryName = await _db.Database.SqlQueryRaw<string>(
+                """SELECT industry_name AS "Value" FROM m_industry WHERE industry_code = {0}""", row.IndustryCode)
+                .FirstOrDefaultAsync(ct);
+        }
+        string? occupationName = null;
+        if (!string.IsNullOrWhiteSpace(row.OccupationCode))
+        {
+            occupationName = await _db.Database.SqlQueryRaw<string>(
+                """SELECT occupation_name AS "Value" FROM m_occupation_type WHERE occupation_code = {0}""", row.OccupationCode)
                 .FirstOrDefaultAsync(ct);
         }
 
@@ -63,6 +88,8 @@ public class RagChunkBuilder
             $"氏名: {row.FullName}" + (string.IsNullOrWhiteSpace(row.FullNameKana) ? "" : $"（{row.FullNameKana}）"),
         };
         if (!string.IsNullOrWhiteSpace(row.CompanyName)) lines.Add($"会社: {row.CompanyName}");
+        if (!string.IsNullOrWhiteSpace(industryName)) lines.Add($"業種: {industryName}");
+        if (!string.IsNullOrWhiteSpace(occupationName)) lines.Add($"職種: {occupationName}");
         if (!string.IsNullOrWhiteSpace(row.Department)) lines.Add($"部署: {row.Department}");
         if (!string.IsNullOrWhiteSpace(row.JobTitle)) lines.Add($"役職: {row.JobTitle}");
         if (!string.IsNullOrWhiteSpace(row.MetPlace)) lines.Add($"出会った場所: {row.MetPlace}");

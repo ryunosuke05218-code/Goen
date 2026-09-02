@@ -94,4 +94,14 @@ public class StripeSubscriptionService : ISubscriptionService
 
         return new BillingPortalSession(session.Url);
     }
+
+    public async Task CancelSubscriptionAsync(Guid orgId, CancellationToken cancellationToken = default)
+    {
+        var org = await _db.Organizations.FirstOrDefaultAsync(o => o.OrgId == orgId, cancellationToken)
+            ?? throw new InvalidOperationException("組織が見つかりません。");
+        if (org.SubscriptionProviderSubscriptionId is null) return;
+
+        var subscriptionService = new SubscriptionService(_client);
+        await subscriptionService.CancelAsync(org.SubscriptionProviderSubscriptionId, cancellationToken: cancellationToken);
+    }
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/voice_input_field.dart';
 import 'models/person_models.dart';
 import 'occupation_picker.dart';
+import 'person_list_screen.dart';
 import 'person_picker.dart';
 import 'person_repository.dart';
 import 'sns_links_editor.dart';
@@ -122,6 +123,9 @@ class _PersonManualCreateScreenState
             introducerPersonId: _introducer?.personId,
           );
       if (!mounted) return;
+      // IndexedStackで人物一覧タブの状態が保持され続けるため、登録直後に明示的に無効化しないと
+      // 一覧に新規人物が反映されない（アプリ再起動まで気付かれない不具合になっていた）。
+      ref.invalidate(personListProvider);
       // 手入力登録はホームのタブ埋め込み（プッシュを経由しない）としても表示されうるため、
       // pushReplacementで置き換えてしまうと'/home'ページ自体がスタックから失われ、
       // 遷移先の人物カルテに戻るボタンがなくなってしまう。必ずpushで積み、戻り先を明示する。

@@ -804,7 +804,7 @@ CREATE TABLE rag_chunks (
   source_version  integer NOT NULL,
   chunk_no        integer NOT NULL,
   content         text NOT NULL,
-  embedding       vector(1024) NOT NULL,
+  embedding       vector(1536) NOT NULL, -- OpenAI text-embedding-3-small想定。次元数変更時はmigrations/0016参照
   embedding_model text NOT NULL,
   embedding_dim   integer NOT NULL,
   occurred_at     timestamptz,

@@ -30,4 +30,8 @@ public interface ISubscriptionService
 
     // 契約内容の変更・解約等を行うポータルへの遷移先を作成する（Stripeのカスタマーポータル等）。
     Task<BillingPortalSession> CreateBillingPortalSessionAsync(Guid orgId, CancellationToken cancellationToken = default);
+
+    // アカウント削除時に即時解約する。カスタマーポータルへ誘導する余地のない「その場で退会」フロー用。
+    // 未契約（契約IDが無い）組織に対しては何もしない。
+    Task CancelSubscriptionAsync(Guid orgId, CancellationToken cancellationToken = default);
 }
